@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ms-ado-mcp"
+version = "0.1.0"
+description = "Local Azure DevOps MCP server with private, executable work item policies"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "mcp>=1.30,<2",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "python-dotenv>=1.2,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4,<9", "pytest-asyncio>=1.4,<2", "ruff>=0.17,<1"]
+
+[project.scripts]
+ms-ado-mcp = "ms_ado_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ms_ado_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
