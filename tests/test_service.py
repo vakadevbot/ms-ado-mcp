@@ -94,6 +94,7 @@ async def test_search_title_escaping_scope_and_cursor(make_service):
     service = make_service(handler)
     result = await service.search(
         text="O'Brien",
+        created_since="2026-01-01",
         after_id=4,
         area_path="Demo Project\\Team",
         as_of="2026-01-01T00:00:00Z",

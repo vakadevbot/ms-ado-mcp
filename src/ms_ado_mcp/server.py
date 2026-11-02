@@ -63,6 +63,9 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         "For 'my' items use list_my_work_items: @Me is the PAT owner, no user ID is needed. "
         "For 'my active work items' use list_my_active_work_items, which always filters "
         "AssignedTo=@Me and the project's active states. "
+        "Lists/searches in all states require created_since or a sprint/PI iteration_path, "
+        "except exact numeric ID lookups. Active lists need no time filter and include "
+        "all configured work item kinds, not only Tasks. Follow pagination to get them all. "
         "Use validate_my_active_work_items for a bulk audit of my active items, or "
         "validate_my_work_items with a sprint/PI iteration or created_since date. "
         "If complete=false, continue with next_after_id/as_of and the same filters; "
@@ -91,6 +94,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         active_only: bool = False,
         area_path: str | None = None,
         iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         limit: Limit = 50,
         after_id: Cursor = 0,
         as_of: str | None = None,
@@ -100,6 +105,9 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         relationship=assigned means assigned to me; created means authored by me.
         Includes all states by default, filtered to the project's configured work item kinds.
         active_only uses the project's active-state policy; text is a title fragment or ID.
+        When active_only=false, provide created_since or a sprint/PI iteration_path,
+        except for an exact numeric ID. created_before alone, area or assignee is not enough.
+        Creation dates: inclusive since, exclusive before; ISO date (UTC) or zoned timestamp.
         Continue with next_after_id as after_id and the returned as_of.
         """
         return await service.my_work_items(
@@ -110,6 +118,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             active_only=active_only,
             area_path=area_path,
             iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
             limit=limit,
             after_id=after_id,
             as_of=as_of,
@@ -122,6 +132,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         kinds: list[Kind] | None = None,
         area_path: str | None = None,
         iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         limit: Limit = 50,
         after_id: Cursor = 0,
         as_of: str | None = None,
@@ -132,6 +144,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         InProgress category by default, including custom states; respects active_states
         and active_categories overrides. No user ID or separate identity lookup needed.
         Optionally search by title fragment or numeric ID, work item kinds, area/iteration.
+        No date/iteration required. All configured kinds are included unless kinds is set.
+        Optional created_since/created_before filter creation dates, never applied by default.
         Continue with next_after_id as after_id and the returned as_of.
         """
         return await service.my_work_items(
@@ -142,6 +156,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             kinds=kinds,
             area_path=area_path,
             iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
             limit=limit,
             after_id=after_id,
             as_of=as_of,
@@ -252,6 +268,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         assigned_to: str | None = None,
         area_path: str | None = None,
         iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         limit: Limit = 50,
         after_id: Cursor = 0,
         as_of: str | None = None,
@@ -261,6 +279,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         Defaults to InProgress category, including custom analysis/in-progress states.
         Pass returned next_after_id and as_of to continue the same snapshot.
         assigned_to accepts an identity or @Me; area/iteration include descendants.
+        No date or iteration required; includes all configured kinds unless kinds is set.
+        Optional created_since/created_before filter creation dates, never applied by default.
         """
         return await service.search(
             project=project,
@@ -269,6 +289,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             assigned_to=assigned_to,
             area_path=area_path,
             iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
             limit=limit,
             after_id=after_id,
             as_of=as_of,
@@ -283,6 +305,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         assigned_to: str | None = None,
         area_path: str | None = None,
         iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         limit: Limit = 50,
         after_id: Cursor = 0,
         as_of: str | None = None,
@@ -292,6 +316,10 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         Search uses WIQL, not the optional Azure Search extension. A value containing both
         single and double quotes is rejected: use a shorter title fragment.
         Continue with next_after_id and as_of from the previous response.
+        In all states, title search requires created_since or a sprint/PI iteration_path.
+        Exact numeric ID lookup and active_only=true need no time filter.
+        created_before alone does not bound history. Since is inclusive, before exclusive;
+        use YYYY-MM-DD (UTC midnight) or ISO timestamps with timezone.
         """
         return await service.search(
             project=project,
@@ -301,6 +329,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             assigned_to=assigned_to,
             area_path=area_path,
             iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
             limit=limit,
             after_id=after_id,
             as_of=as_of,

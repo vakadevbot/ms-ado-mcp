@@ -56,6 +56,31 @@ def creation_timestamp(value: str) -> datetime:
         ) from None
 
 
+def require_bounded_history(
+    project: str,
+    *,
+    active_only: bool,
+    iteration_path: str | None,
+    created_since: str | None,
+    exact_id: bool = False,
+) -> None:
+    if iteration_path is not None:
+        parts = iteration_path.split("\\")
+        if (
+            len(parts) < 2
+            or parts[0].casefold() != project.casefold()
+            or any(not p.strip() or p != p.strip() or p in {".", ".."} for p in parts)
+        ):
+            raise ValueError("iteration_path must identify a sprint/PI below the project root.")
+        literal(iteration_path)
+    if not active_only and not exact_id and iteration_path is None and created_since is None:
+        raise ValueError(
+            "Provide iteration_path (sprint/PI) or created_since; "
+            "unbounded history queries are not allowed. Active items and exact ID lookups "
+            "do not require a time filter."
+        )
+
+
 class WorkItemService:
     def __init__(
         self,
@@ -126,6 +151,14 @@ class WorkItemService:
         policy = self.policy(project)
         if not 1 <= limit <= 200 or after_id < 0:
             raise ValueError("limit must be 1–200; after_id must be >=0.")
+        exact_id = text is not None and text.strip().isascii() and text.strip().isdecimal()
+        require_bounded_history(
+            policy.name,
+            active_only=active_only,
+            iteration_path=iteration_path,
+            created_since=created_since,
+            exact_id=exact_id,
+        )
         selected = kinds if kinds is not None else list(policy.work_item_types)
         if not selected:
             raise ValueError("Select at least one work item kind.")
@@ -206,6 +239,8 @@ class WorkItemService:
         active_only: bool = False,
         area_path: str | None = None,
         iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         limit: int = 50,
         after_id: int = 0,
         as_of: str | None = None,
@@ -219,6 +254,8 @@ class WorkItemService:
             active_only=active_only,
             assigned_to="@Me" if relationship == "assigned" else None,
             created_by="@Me" if relationship == "created" else None,
+            created_since=created_since,
+            created_before=created_before,
             area_path=area_path,
             iteration_path=iteration_path,
             limit=limit,
@@ -242,20 +279,12 @@ class WorkItemService:
         policy = self.policy(project)
         if not 1 <= max_items <= 1000:
             raise ValueError("max_items must be 1–1000.")
-        if iteration_path is not None:
-            parts = iteration_path.split("\\")
-            if (
-                len(parts) < 2
-                or parts[0].casefold() != policy.name.casefold()
-                or any(not p.strip() or p != p.strip() or p in {".", ".."} for p in parts)
-            ):
-                raise ValueError("iteration_path must identify a sprint/PI below the project root.")
-            literal(iteration_path)
-        if not active_only and iteration_path is None and created_since is None:
-            raise ValueError(
-                "Provide iteration_path (sprint/PI) or created_since; "
-                "validating the entire work item history is not allowed."
-            )
+        require_bounded_history(
+            policy.name,
+            active_only=active_only,
+            iteration_path=iteration_path,
+            created_since=created_since,
+        )
         results: list[BatchValidationEntry] = []
         cursor = after_id
         snapshot = as_of
