@@ -7,7 +7,7 @@ import httpx
 
 from .config import Settings
 from .diagnostics import logger
-from .models import WorkItem
+from .models import CurrentUser, WorkItem
 
 PARENT = "System.LinkTypes.Hierarchy-Reverse"
 CHILD = "System.LinkTypes.Hierarchy-Forward"
@@ -56,6 +56,7 @@ class AzureDevOpsClient:
         params: dict | None = None,
         body: Any = None,
         patch: bool = False,
+        collection_scoped: bool = False,
     ) -> dict:
         is_create = patch
         uncertain = (
@@ -66,7 +67,9 @@ class AzureDevOpsClient:
         try:
             response = await self.http.request(
                 method,
-                self.api_url(project, path),
+                f"{self.base_url}/_apis/{path}"
+                if collection_scoped
+                else self.api_url(project, path),
                 params={**(params or {}), "api-version": self.settings.version(endpoint)},
                 json=body,
                 headers={"Content-Type": "application/json-patch+json"} if patch else None,
@@ -136,6 +139,31 @@ class AzureDevOpsClient:
                 endpoint,
             )
             raise AzureDevOpsError("Azure DevOps returned invalid JSON." + uncertain) from None
+
+    async def current_user(self) -> CurrentUser:
+        data = await self.request(
+            "GET", "", "connectionData", "connectiondata", collection_scoped=True
+        )
+        # Return only identity fields, never the raw connection/authentication metadata.
+        identity = data.get("authenticatedUser")
+        if (
+            not isinstance(identity, dict)
+            or not identity.get("id")
+            or identity.get("isActive") is False
+        ):
+            raise AzureDevOpsError("Azure DevOps did not return an active authenticated PAT user.")
+        unique_name = identity.get("uniqueName")
+        if not unique_name:
+            properties = identity.get("properties") or {}
+            account = properties.get("Account") if isinstance(properties, dict) else None
+            unique_name = account.get("$value") if isinstance(account, dict) else None
+        return CurrentUser(
+            id=identity["id"],
+            display_name=identity.get("customDisplayName")
+            or identity.get("providerDisplayName")
+            or "",
+            unique_name=unique_name,
+        )
 
     @staticmethod
     def checked_item(data: dict, project: str) -> WorkItem:

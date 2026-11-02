@@ -48,7 +48,13 @@ class Settings:
     def version(self, endpoint: str) -> str:
         if self.api_version == "6.1":
             return "6.1"
-        revision = {"wiql": 2, "workitems": 3, "workitemsbatch": 1, "states": 1}[endpoint]
+        revision = {
+            "wiql": 2,
+            "workitems": 3,
+            "workitemsbatch": 1,
+            "states": 1,
+            "connectiondata": 1,
+        }[endpoint]
         return f"6.1-preview.{revision}"
 
 

@@ -67,6 +67,7 @@ class WorkItemService:
         kinds: list[Kind] | None = None,
         active_only: bool = False,
         assigned_to: str | None = None,
+        created_by: str | None = None,
         area_path: str | None = None,
         iteration_path: str | None = None,
         limit: int = 50,
@@ -109,11 +110,16 @@ class WorkItemService:
                 filters.append(f"[System.Title] CONTAINS {literal(text)}")
         for field, value, operator in [
             ("System.AssignedTo", assigned_to, "="),
+            ("System.CreatedBy", created_by, "="),
             ("System.AreaPath", area_path, "UNDER"),
             ("System.IterationPath", iteration_path, "UNDER"),
         ]:
             if value is not None:
-                rhs = "@Me" if field == "System.AssignedTo" and value == "@Me" else literal(value)
+                rhs = (
+                    "@Me"
+                    if field in {"System.AssignedTo", "System.CreatedBy"} and value == "@Me"
+                    else literal(value)
+                )
                 filters.append(f"[{field}] {operator} {rhs}")
         wiql = "SELECT [System.Id] FROM WorkItems WHERE " + " AND ".join(filters)
         wiql += " ORDER BY [System.Id] ASC"
@@ -132,6 +138,69 @@ class WorkItemService:
             items=items,
             next_after_id=ids[limit - 1] if len(ids) > limit else None,
             as_of=snapshot,
+        )
+
+    async def my_work_items(
+        self,
+        *,
+        relationship: Literal["assigned", "created"] = "assigned",
+        project: str | None = None,
+        text: str | None = None,
+        kinds: list[Kind] | None = None,
+        active_only: bool = False,
+        area_path: str | None = None,
+        iteration_path: str | None = None,
+        limit: int = 50,
+        after_id: int = 0,
+        as_of: str | None = None,
+    ) -> WorkItemPage:
+        if relationship not in {"assigned", "created"}:
+            raise ValueError("relationship must be assigned or created.")
+        return await self.search(
+            project=project,
+            text=text,
+            kinds=kinds,
+            active_only=active_only,
+            assigned_to="@Me" if relationship == "assigned" else None,
+            created_by="@Me" if relationship == "created" else None,
+            area_path=area_path,
+            iteration_path=iteration_path,
+            limit=limit,
+            after_id=after_id,
+            as_of=as_of,
+        )
+
+    async def create_my_work_item(
+        self,
+        kind: Literal["user_story", "task"],
+        title: str,
+        description: str = "",
+        *,
+        project: str | None = None,
+        fields: dict[str, JsonValue] | None = None,
+        parent_id: int | None = None,
+    ) -> CreationResult:
+        # Validate arguments before contacting Azure. The identity field is then included
+        # in the same draft that corporate rules validate and the create request sends.
+        policy = self.policy(project)
+        if kind not in {"user_story", "task"}:
+            raise ValueError("Only user stories and tasks can be created.")
+        self.draft(policy, kind, title, description, fields, parent_id)
+        if any(name.lower() == "system.assignedto" for name in fields or {}):
+            raise ValueError("create_my_work_item assigns to you; omit System.AssignedTo.")
+        user = await self.client.current_user()
+        if not user.unique_name:
+            raise ValueError(
+                "Azure DevOps did not return a login for the PAT owner; cannot assign to self. "
+                "Use create_task/create_user_story with an explicit System.AssignedTo instead."
+            )
+        return await self.create(
+            kind,
+            title,
+            description,
+            project=project,
+            fields={**(fields or {}), "System.AssignedTo": user.unique_name},
+            parent_id=parent_id,
         )
 
     async def hierarchy_for(self, project: str, item: WorkItem) -> Hierarchy:

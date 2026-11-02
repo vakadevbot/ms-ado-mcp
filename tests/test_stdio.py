@@ -52,6 +52,9 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             tools = {t.name: t for t in catalog.tools}
             assert set(tools) == {
                 "get_project_rules",
+                "get_current_user",
+                "list_my_work_items",
+                "create_my_work_item",
                 "list_active_work_items",
                 "search_work_items",
                 "get_work_item",
@@ -61,6 +64,9 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 "validate_work_item",
             }
             assert tools["create_task"].annotations.idempotentHint is False
+            assert tools["create_my_work_item"].annotations.idempotentHint is False
+            assert tools["list_my_work_items"].annotations.readOnlyHint is True
+            assert tools["get_current_user"].annotations.readOnlyHint is True
             assert tools["validate_work_item"].annotations.readOnlyHint is True
             assert (
                 tools["list_active_work_items"].inputSchema["properties"]["limit"]["maximum"] == 200

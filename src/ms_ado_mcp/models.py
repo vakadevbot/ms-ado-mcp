@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field, JsonValue
 Kind = Literal["user_story", "task", "feature", "pi_goal"]
 
 
+class CurrentUser(BaseModel):
+    id: str = Field(min_length=1)
+    display_name: str
+    unique_name: str | None = None
+
+
 class Relation(BaseModel):
     rel: str
     url: str

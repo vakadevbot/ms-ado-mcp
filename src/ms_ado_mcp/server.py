@@ -4,7 +4,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, redirect_stdout
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -13,7 +13,15 @@ from pydantic import Field, JsonValue
 from .client import AzureDevOpsClient
 from .config import ConfigurationError, Settings, load_settings
 from .diagnostics import configure_error_log, logger
-from .models import CreationResult, Hierarchy, Kind, ValidationResult, WorkItem, WorkItemPage
+from .models import (
+    CreationResult,
+    CurrentUser,
+    Hierarchy,
+    Kind,
+    ValidationResult,
+    WorkItem,
+    WorkItemPage,
+)
 from .policy import ProjectPolicy, load_policies
 from .service import WorkItemService, positive_id
 
@@ -46,9 +54,80 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         "Creation always runs the corporate Python checks; no bypass is available. "
         "Validation checks configured corporate rules, not every Azure server-side rule. "
         "After an ambiguous network failure, check for duplicates before retrying creation.\n\n"
+        "For 'my' items use list_my_work_items: @Me is the PAT owner, no user ID is needed. "
+        "get_current_user shows this identity. Every creation is authored by the PAT owner; "
+        "create_my_work_item also assigns the item to that user and enforces project rules.\n\n"
         + "\n\n".join(policy.instructions() for policy in policies.values())
     )
     server = FastMCP("ms-ado-mcp", instructions=instructions, lifespan=lifespan)
+
+    @server.tool(annotations=READ)
+    async def get_current_user() -> CurrentUser:
+        """Get the Azure DevOps identity authenticated by the configured PAT.
+
+        This is the user meant by @Me and 'my work items', and the author of creations.
+        No user ID or login needs to be configured. A shared/service PAT means that account.
+        """
+        return await client.current_user()
+
+    @server.tool(annotations=READ)
+    async def list_my_work_items(
+        relationship: Literal["assigned", "created"] = "assigned",
+        project: str | None = None,
+        text: str | None = None,
+        kinds: list[Kind] | None = None,
+        active_only: bool = False,
+        area_path: str | None = None,
+        iteration_path: str | None = None,
+        limit: Limit = 50,
+        after_id: Cursor = 0,
+        as_of: str | None = None,
+    ) -> WorkItemPage:
+        """List/search the PAT owner's work items using Azure's @Me identity.
+
+        relationship=assigned means assigned to me; created means authored by me.
+        Includes all states by default, filtered to the project's configured work item kinds.
+        active_only uses the project's active-state policy; text is a title fragment or ID.
+        Continue with next_after_id as after_id and the returned as_of.
+        """
+        return await service.my_work_items(
+            relationship=relationship,
+            project=project,
+            text=text,
+            kinds=kinds,
+            active_only=active_only,
+            area_path=area_path,
+            iteration_path=iteration_path,
+            limit=limit,
+            after_id=after_id,
+            as_of=as_of,
+        )
+
+    @server.tool(annotations=CREATE)
+    async def create_my_work_item(
+        kind: Literal["user_story", "task"],
+        title: str,
+        description: str = "",
+        project: str | None = None,
+        fields: dict[str, JsonValue] | None = None,
+        parent_id: ItemId | None = None,
+    ) -> CreationResult:
+        """Create a task/user story authored by and assigned to the PAT owner.
+
+        Resolves the current user's login automatically; no manual user ID is needed.
+        Read get_project_rules first. All corporate rules validate the draft including
+        System.AssignedTo before writing. Omit System.AssignedTo from fields.
+        With no applicable project rules, creation is blocked just like create_task.
+        No impersonation or override of System.CreatedBy is performed.
+        """
+        return await service.create_my_work_item(
+            kind,
+            title,
+            description,
+            project=project,
+            fields=fields,
+            parent_id=parent_id,
+        )
 
     @server.tool(annotations=READ)
     def get_project_rules(project: str | None = None) -> dict[str, str]:
