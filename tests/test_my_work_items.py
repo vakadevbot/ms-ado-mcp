@@ -200,3 +200,73 @@ async def test_no_account_never_assigns_ambiguous_display_name(make_service):
 
     with pytest.raises(ValueError, match="did not return a login"):
         await make_service(handler).create_my_work_item("task", "Task")
+
+
+@pytest.mark.parametrize("explicit_states", [True, False])
+async def test_my_active_mcp_tool_always_filters_owner_and_active_states(
+    settings, policy, monkeypatch, explicit_states
+):
+    from ms_ado_mcp import server as server_module
+
+    policy = replace(policy, active_states={"task": ("Doing",)} if explicit_states else {})
+    calls = []
+    snapshot = "2026-01-01T00:00:00Z"
+
+    def handler(request):
+        calls.append(request)
+        if request.url.path.endswith("/states"):
+            return httpx.Response(
+                200,
+                json={
+                    "value": [
+                        {"name": "Doing", "category": "InProgress"},
+                        {"name": "Closed", "category": "Completed"},
+                    ]
+                },
+            )
+        body = json.loads(request.content)
+        if request.url.path.endswith("/wiql"):
+            query = body["query"]
+            assert "[System.AssignedTo] = @Me" in query
+            assert "[System.CreatedBy]" not in query
+            assert "[System.State] IN ('Doing')" in query
+            assert "Closed" not in query
+            assert "[System.Title] CONTAINS 'auth'" in query
+            assert "[System.WorkItemType] = 'Task'" in query
+            assert "[System.AreaPath] UNDER 'Demo Project\\Team'" in query
+            assert "[System.IterationPath] UNDER 'Demo Project\\Sprint'" in query
+            assert "[System.Id] > 2" in query
+            assert query.endswith(f"ASOF '{snapshot}'")
+            assert request.url.params["$top"] == "2"
+            return httpx.Response(
+                200,
+                json={
+                    "workItems": [{"id": 3}, {"id": 4}],
+                    "asOf": snapshot,
+                },
+            )
+        assert request.url.path.endswith("/workitemsbatch")
+        assert body["ids"] == [3]
+        assert body["asOf"] == snapshot
+        return httpx.Response(200, json={"value": [item(3)]})
+
+    client = AzureDevOpsClient(settings, httpx.MockTransport(handler))
+    monkeypatch.setattr(server_module, "AzureDevOpsClient", lambda settings: client)
+    server = server_module.build_server(settings, {policy.name: policy})
+    try:
+        await server.call_tool(
+            "list_my_active_work_items",
+            {
+                "project": policy.name,
+                "text": "auth",
+                "kinds": ["task"],
+                "area_path": "Demo Project\\Team",
+                "iteration_path": "Demo Project\\Sprint",
+                "limit": 1,
+                "after_id": 2,
+                "as_of": snapshot,
+            },
+        )
+    finally:
+        await client.close()
+    assert len(calls) == (2 if explicit_states else 3)

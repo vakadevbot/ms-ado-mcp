@@ -55,6 +55,8 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         "Validation checks configured corporate rules, not every Azure server-side rule. "
         "After an ambiguous network failure, check for duplicates before retrying creation.\n\n"
         "For 'my' items use list_my_work_items: @Me is the PAT owner, no user ID is needed. "
+        "For 'my active work items' use list_my_active_work_items, which always filters "
+        "AssignedTo=@Me and the project's active states. "
         "get_current_user shows this identity. Every creation is authored by the PAT owner; "
         "create_my_work_item also assigns the item to that user and enforces project rules.\n\n"
         + "\n\n".join(policy.instructions() for policy in policies.values())
@@ -96,6 +98,38 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             text=text,
             kinds=kinds,
             active_only=active_only,
+            area_path=area_path,
+            iteration_path=iteration_path,
+            limit=limit,
+            after_id=after_id,
+            as_of=as_of,
+        )
+
+    @server.tool(annotations=READ)
+    async def list_my_active_work_items(
+        project: str | None = None,
+        text: str | None = None,
+        kinds: list[Kind] | None = None,
+        area_path: str | None = None,
+        iteration_path: str | None = None,
+        limit: Limit = 50,
+        after_id: Cursor = 0,
+        as_of: str | None = None,
+    ) -> WorkItemPage:
+        """Find active work items assigned to me (the configured PAT owner).
+
+        Always filters System.AssignedTo=@Me and the project's active-state policy:
+        InProgress category by default, including custom states; respects active_states
+        and active_categories overrides. No user ID or separate identity lookup needed.
+        Optionally search by title fragment or numeric ID, work item kinds, area/iteration.
+        Continue with next_after_id as after_id and the returned as_of.
+        """
+        return await service.my_work_items(
+            relationship="assigned",
+            active_only=True,
+            project=project,
+            text=text,
+            kinds=kinds,
             area_path=area_path,
             iteration_path=iteration_path,
             limit=limit,
