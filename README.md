@@ -102,6 +102,60 @@ notepad private\rules.py
 В v2 серверы находятся в `mcp.servers`; [схема подключения](https://dev.opencode.ai/v2/docs/mcp-servers/).
 Используется стандартный legacy MCP handshake (SDK 1.x, зависимость ограничена `<2`).
 
+### OpenCode v2 на Windows
+
+После установки сервера по инструкции PowerShell выше убедитесь, что команда
+`opencode --version` доступна в новом окне PowerShell. Перейдите в каталог
+проекта, с которым будете работать в OpenCode (он может отличаться от каталога
+`ms-ado-mcp`), и откройте его конфигурацию:
+
+```powershell
+cd C:\Users\YourName\Projects\MyProject
+notepad opencode.json
+```
+
+Добавьте следующую конфигурацию, заменив `C:/Users/YourName/ms-ado-mcp` на
+абсолютный путь к установленному серверу. Если файл уже содержит настройки,
+добавьте сервер `ado` в `mcp.servers`, сохранив остальные параметры.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "ado": {
+        "type": "local",
+        "command": [
+          "C:/Users/YourName/ms-ado-mcp/.venv/Scripts/ms-ado-mcp.exe",
+          "--env-file",
+          "C:/Users/YourName/ms-ado-mcp/.env"
+        ]
+      }
+    }
+  }
+}
+```
+
+Прямые слеши допустимы в Windows-путях и не требуют экранирования в JSON.
+Каждый аргумент остаётся отдельной строкой массива, даже если путь содержит
+пробелы. OpenCode запускает `.exe` напрямую; активировать `.venv` или запускать
+сервер вручную перед OpenCode не требуется.
+
+Из того же каталога проверьте подключение и запустите OpenCode:
+
+```powershell
+opencode mcp list
+opencode
+```
+
+В интерфейсе откройте `/mcps` и проверьте подключение `ado`, затем запросите:
+«Покажи правила проекта Azure DevOps». Для проверки чтения из Azure запросите:
+«Покажи активные задачи, назначенные мне, в Azure DevOps».
+После изменения `.env`, правил или конфигурации перезапустите OpenCode.
+Если сервер не подключается, проверьте оба пути и запустите команду
+`.\.venv\Scripts\ms-ado-mcp.exe --env-file "$PWD\.env"` из каталога
+`ms-ado-mcp`, чтобы увидеть диагностику конфигурации в stderr.
+
 ## Инструменты
 
 | Инструмент | Назначение |
