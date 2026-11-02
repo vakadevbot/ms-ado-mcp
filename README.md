@@ -22,7 +22,7 @@ PAT: **Work Items → Read & write**; для чтения достаточно R
 Пример содержит **вымышленные проверки**, а не ваши корпоративные требования.
 
 ```bash
-.venv/bin/ms-ado-mcp --env-file /absolute/path/ms-ado-mcp/.env
+.venv/bin/python -m ms_ado_mcp.server --env-file /absolute/path/ms-ado-mcp/.env
 ```
 
 Сервер ждёт MCP-сообщения на stdin; отсутствие вывода при запуске нормально.
@@ -54,14 +54,14 @@ notepad private\rules.py
 Запустите сервер из каталога проекта:
 
 ```powershell
-.\.venv\Scripts\ms-ado-mcp.exe --env-file "$PWD\.env"
+.\.venv\Scripts\python.exe -m ms_ado_mcp.server --env-file "$PWD\.env"
 ```
 
 Активация виртуального окружения не требуется; менять Execution Policy для
 этих команд не нужно. Сервер ожидает MCP-запросы; для остановки нажмите `Ctrl+C`.
 
 В конфигурации OpenCode ниже замените пути на Windows-пути с прямыми слешами,
-например `C:/Users/YourName/ms-ado-mcp/.venv/Scripts/ms-ado-mcp.exe` и
+например `C:/Users/YourName/ms-ado-mcp/.venv/Scripts/python.exe` и
 `C:/Users/YourName/ms-ado-mcp/.env`. Если в JSON используются обратные слеши,
 их нужно удваивать (`C:\\Users\\YourName\\ms-ado-mcp\\.env`).
 
@@ -86,7 +86,9 @@ notepad private\rules.py
       "ado": {
         "type": "local",
         "command": [
-          "/absolute/path/ms-ado-mcp/.venv/bin/ms-ado-mcp",
+          "/absolute/path/ms-ado-mcp/.venv/bin/python",
+          "-m",
+          "ms_ado_mcp.server",
           "--env-file",
           "/absolute/path/ms-ado-mcp/.env"
         ]
@@ -126,7 +128,9 @@ notepad opencode.json
       "ado": {
         "type": "local",
         "command": [
-          "C:/Users/YourName/ms-ado-mcp/.venv/Scripts/ms-ado-mcp.exe",
+          "C:/Users/YourName/ms-ado-mcp/.venv/Scripts/python.exe",
+          "-m",
+          "ms_ado_mcp.server",
           "--env-file",
           "C:/Users/YourName/ms-ado-mcp/.env"
         ]
@@ -138,8 +142,14 @@ notepad opencode.json
 
 Прямые слеши допустимы в Windows-путях и не требуют экранирования в JSON.
 Каждый аргумент остаётся отдельной строкой массива, даже если путь содержит
-пробелы. OpenCode запускает `.exe` напрямую; активировать `.venv` или запускать
-сервер вручную перед OpenCode не требуется.
+пробелы. OpenCode запускает Python из `.venv`, который выполняет
+`src/ms_ado_mcp/server.py` как модуль `ms_ado_mcp.server`. Активация `.venv`
+и ручной запуск сервера перед OpenCode не требуются.
+
+Используйте `-m ms_ado_mcp.server`: запуск файла командой
+`python src/ms_ado_mcp/server.py` не поддерживается из-за относительных импортов
+внутри пакета. Установка через `pip install -e .` делает модуль доступным
+из любого рабочего каталога.
 
 Из того же каталога проверьте подключение и запустите OpenCode:
 
@@ -153,7 +163,7 @@ opencode
 «Покажи активные задачи, назначенные мне, в Azure DevOps».
 После изменения `.env`, правил или конфигурации перезапустите OpenCode.
 Если сервер не подключается, проверьте оба пути и запустите команду
-`.\.venv\Scripts\ms-ado-mcp.exe --env-file "$PWD\.env"` из каталога
+`.\.venv\Scripts\python.exe -m ms_ado_mcp.server --env-file "$PWD\.env"` из каталога
 `ms-ado-mcp`, чтобы увидеть диагностику конфигурации в stderr.
 
 ## Инструменты
