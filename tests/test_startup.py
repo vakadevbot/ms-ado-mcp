@@ -40,6 +40,10 @@ def test_startup_diagnostics(tmp_path, monkeypatch, capsys, extra, message):
     assert "(found)" in output.err
     assert "private-secret" not in output.err
     assert "user:secret" not in output.err
+    log = (tmp_path / "logs" / "ms-ado-mcp.log").read_text(encoding="utf-8")
+    assert message in log
+    assert "private-secret" not in log
+    assert "user:secret" not in log
 
 
 def test_missing_env_file_reports_resolved_path(tmp_path, monkeypatch, capsys):
@@ -77,3 +81,6 @@ def test_private_rule_exception_is_not_exposed(tmp_path, monkeypatch, capsys):
     assert output.out == ""
     assert "Cannot load project rules" in output.err
     assert "private-secret" not in output.err
+    log = (tmp_path / "logs" / "ms-ado-mcp.log").read_text(encoding="utf-8")
+    assert "Cannot load project rules" in log
+    assert "private-secret" not in log

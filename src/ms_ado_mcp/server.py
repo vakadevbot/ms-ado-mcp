@@ -12,6 +12,7 @@ from pydantic import Field, JsonValue
 
 from .client import AzureDevOpsClient
 from .config import ConfigurationError, Settings, load_settings
+from .diagnostics import configure_error_log, logger
 from .models import CreationResult, Hierarchy, Kind, ValidationResult, WorkItem, WorkItemPage
 from .policy import ProjectPolicy, load_policies
 from .service import WorkItemService, positive_id
@@ -232,6 +233,15 @@ def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     env_file = args.env_file.expanduser().resolve()
+    try:
+        log_file = configure_error_log(env_file)
+    except OSError:
+        log_file = None
+        print(
+            f"Cannot create error log in {env_file.parent / 'logs'}; check write permissions. "
+            "Errors will still be reported to the MCP client.",
+            file=sys.stderr,
+        )
     stage = "settings"
     try:
         settings = load_settings(env_file)
@@ -263,13 +273,16 @@ def main() -> None:
             reason = "Cannot initialize HTTPS client. Check ADO_CA_BUNDLE PEM format/permissions."
         else:
             reason = "Cannot read settings. Check .env paths, permissions and parameter formats."
-        parser.exit(
-            2,
+        message = (
             f"Configuration error: {reason}\n"
             f"Env file: {env_file} ({'found' if env_file.is_file() else 'not found'})\n"
             "Process environment variables override .env. Relative rules/CA paths are "
-            "resolved against the .env directory. Secret values are not shown.\n",
+            "resolved against the .env directory. Secret values are not shown.\n"
         )
+        logger.error("%s", message.rstrip())
+        if log_file is not None:
+            message += f"Error log: {log_file}\n"
+        parser.exit(2, message)
     server.run(transport="stdio")
 
 

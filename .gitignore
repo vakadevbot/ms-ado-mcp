@@ -12,6 +12,7 @@ build/
 .coverage
 htmlcov/
 private/
+logs/
 *.local.py
 opencode.json
 opencode.jsonc

@@ -1,3 +1,4 @@
+import socket
 import ssl
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -5,6 +6,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from .config import Settings
+from .diagnostics import logger
 from .models import WorkItem
 
 PARENT = "System.LinkTypes.Hierarchy-Reverse"
@@ -69,30 +71,70 @@ class AzureDevOpsClient:
                 json=body,
                 headers={"Content-Type": "application/json-patch+json"} if patch else None,
             )
-        except httpx.RequestError:
-            raise AzureDevOpsError(
-                "Azure DevOps connection failed or timed out." + uncertain
-            ) from None
+        except httpx.RequestError as exc:
+            hint = "Check server availability, network, VPN and proxy settings."
+            if isinstance(exc, httpx.TimeoutException):
+                hint = "Request timed out; check connectivity and ADO_HTTP_TIMEOUT."
+            elif isinstance(exc, httpx.ProxyError):
+                hint = "Proxy connection failed; check HTTPS_PROXY and proxy authentication."
+            cause: BaseException | None = exc
+            seen: set[int] = set()
+            while cause is not None and id(cause) not in seen:
+                seen.add(id(cause))
+                if isinstance(cause, ssl.SSLError):
+                    hint = "TLS failed; check the certificate chain and ADO_CA_BUNDLE."
+                    break
+                if isinstance(cause, socket.gaierror):
+                    hint = "DNS lookup failed; check the server hostname, network and VPN."
+                    break
+                cause = cause.__cause__ or cause.__context__
+            # Do not log exception strings, request bodies, URLs, headers or PATs.
+            message = "Azure DevOps connection failed or timed out. " + hint + uncertain
+            logger.error(
+                "ADO request failed: method=%s host=%s endpoint=%s error=%s. %s",
+                method,
+                urlsplit(self.base_url).hostname,
+                endpoint,
+                type(exc).__name__,
+                message,
+            )
+            raise AzureDevOpsError(message) from None
         if not response.is_success:
             hints = {
                 400: "Check field names, values, process rules, and the configured API version.",
                 401: "Check the PAT and its expiration.",
                 403: "Check PAT Work Items permissions and project access.",
                 404: "Project, work item, type, or API endpoint was not found.",
+                407: "Proxy authentication required; check proxy credentials and HTTPS_PROXY.",
                 429: "Rate limit reached; try later.",
             }
             # Raw response bodies/URLs can echo private fields or credentials.
-            raise AzureDevOpsError(
+            message = (
                 f"Azure DevOps HTTP {response.status_code}. "
                 + hints.get(response.status_code, "Request failed.")
                 + (uncertain if response.status_code >= 500 else "")
             )
+            logger.error(
+                "ADO HTTP failure: method=%s host=%s endpoint=%s status=%s. %s",
+                method,
+                urlsplit(self.base_url).hostname,
+                endpoint,
+                response.status_code,
+                message,
+            )
+            raise AzureDevOpsError(message)
         try:
             data = response.json()
             if not isinstance(data, dict):
                 raise ValueError
             return data
         except ValueError:
+            logger.error(
+                "ADO invalid JSON response: method=%s host=%s endpoint=%s",
+                method,
+                urlsplit(self.base_url).hostname,
+                endpoint,
+            )
             raise AzureDevOpsError("Azure DevOps returned invalid JSON." + uncertain) from None
 
     @staticmethod
