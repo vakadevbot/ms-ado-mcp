@@ -9,11 +9,12 @@ from .models import (
     Hierarchy,
     Kind,
     Relation,
+    UpdateResult,
     ValidationResult,
     WorkItem,
     WorkItemPage,
 )
-from .policy import ProjectPolicy, ValidationContext, check_field_names, validate
+from .policy import SCOPE_FIELDS, ProjectPolicy, ValidationContext, check_field_names, validate
 
 
 def literal(value: str) -> str:
@@ -44,6 +45,31 @@ class WorkItemService:
         self.client = client
         self.policies = policies
         self.default_project = default_project
+        writable = [p for p in policies.values() if p.write_scope is not None]
+        if len(writable) > 1:
+            raise ValueError("Only one project may have a BoardScope for writes.")
+        self.writable_policy = writable[0] if writable else None
+
+    def write_policy(self, project: str | None = None) -> ProjectPolicy:
+        policy = self.writable_policy
+        if policy is None:
+            raise ValueError(
+                "Writes disabled: configure one ProjectPolicy.write_scope=BoardScope(...)."
+            )
+        if project is not None and project != policy.name:
+            raise ValueError("Writes outside the configured team scope are forbidden.")
+        return policy
+
+    @staticmethod
+    def check_write_fields(fields: dict[str, JsonValue]) -> None:
+        check_field_names(fields)
+        if any(name.lower() in SCOPE_FIELDS for name in fields):
+            raise ValueError("Area, iteration and board fields are managed by the server policy.")
+
+    @staticmethod
+    def require_in_scope(policy: ProjectPolicy, item: WorkItem) -> None:
+        if policy.write_scope is None or not policy.write_scope.contains(item):
+            raise ValueError("Work item is outside the configured team scope; write forbidden.")
 
     def policy(self, project: str | None) -> ProjectPolicy:
         name = project or self.default_project
@@ -182,7 +208,7 @@ class WorkItemService:
     ) -> CreationResult:
         # Validate arguments before contacting Azure. The identity field is then included
         # in the same draft that corporate rules validate and the create request sends.
-        policy = self.policy(project)
+        policy = self.write_policy(project)
         if kind not in {"user_story", "task"}:
             raise ValueError("Only user stories and tasks can be created.")
         self.draft(policy, kind, title, description, fields, parent_id)
@@ -228,7 +254,12 @@ class WorkItemService:
     ) -> WorkItem:
         type_name = self.type_name(policy, kind)
         values = {**deepcopy(policy.defaults.get(kind, {})), **(fields or {})}
+        self.check_write_fields(fields or {})
         check_field_names(values)
+        if policy.write_scope is not None:
+            # Remove case aliases from defaults before setting server-owned routing fields.
+            values = {k: v for k, v in values.items() if k.lower() not in SCOPE_FIELDS}
+            values.update(policy.write_scope.fields())
         values.update(
             {
                 "System.Title": title,
@@ -255,6 +286,9 @@ class WorkItemService:
         scope: Literal["draft", "existing"],
     ) -> ValidationResult:
         hierarchy = await self.hierarchy_for(policy.name, item)
+        if policy.write_scope is not None:
+            for parent in hierarchy.parents:
+                self.require_in_scope(policy, parent)
         context = ValidationContext(
             project=policy.name,
             kind=kind,
@@ -293,6 +327,7 @@ class WorkItemService:
             return await self.check(policy, item, kind, "existing")
         if kind is None or title is None:
             raise ValueError("Draft validation requires kind and title.")
+        policy = self.write_policy(project)
         item = self.draft(policy, kind, title, description or "", fields, parent_id)
         return await self.check(policy, item, kind, "draft")
 
@@ -308,10 +343,55 @@ class WorkItemService:
     ) -> CreationResult:
         if kind not in {"user_story", "task"}:
             raise ValueError("Only user stories and tasks can be created.")
-        policy = self.policy(project)
+        policy = self.write_policy(project)
         item = self.draft(policy, kind, title, description, fields, parent_id)
         report = await self.check(policy, item, kind, "draft")
         if not report.valid:
             return CreationResult(created=False, validation=report)
         created = await self.client.create(policy.name, self.type_name(policy, kind), item)
         return CreationResult(created=True, validation=report, item=created)
+
+    async def update(
+        self,
+        item_id: int,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        state: str | None = None,
+        fields: dict[str, JsonValue] | None = None,
+    ) -> UpdateResult:
+        policy = self.write_policy()
+        changes = dict(fields or {})
+        self.check_write_fields(changes)
+        if state is not None:
+            if any(k.lower() == "system.state" for k in changes):
+                raise ValueError("Use state OR fields.System.State, not both.")
+            changes["System.State"] = state
+        if title is not None:
+            changes["System.Title"] = title
+        if description is not None:
+            changes["System.Description"] = description
+        if not changes:
+            raise ValueError("Provide at least one change.")
+        current = await self.client.get_item(policy.name, positive_id(item_id))
+        self.require_in_scope(policy, current)
+        kind = next(
+            (
+                k
+                for k in ("task", "user_story")
+                if policy.work_item_types.get(k) == current.fields.get("System.WorkItemType")
+            ),
+            None,
+        )
+        if kind is None:
+            raise ValueError("Only Task and User Story can be edited; Features are read-only.")
+        if isinstance(current.rev, bool) or current.rev is None or current.rev <= 0:
+            raise ValueError("Azure did not return a valid revision; update forbidden.")
+        proposed = current.model_copy(deep=True)
+        proposed.fields.update(changes)
+        self.require_in_scope(policy, proposed)
+        report = await self.check(policy, proposed, kind, "existing")
+        if not report.valid:
+            return UpdateResult(updated=False, validation=report)
+        updated = await self.client.update(policy.name, current, changes)
+        return UpdateResult(updated=True, validation=report, item=updated)

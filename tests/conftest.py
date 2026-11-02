@@ -3,7 +3,7 @@ import pytest
 
 from ms_ado_mcp.client import AzureDevOpsClient
 from ms_ado_mcp.config import Settings
-from ms_ado_mcp.policy import ProjectPolicy, Rule
+from ms_ado_mcp.policy import BoardScope, ProjectPolicy, Rule
 from ms_ado_mcp.service import WorkItemService
 
 
@@ -16,6 +16,7 @@ def settings():
 def policy():
     return ProjectPolicy(
         name="Demo Project",
+        write_scope=BoardScope(area_path="Demo Project\\Team"),
         rules=(Rule("test.allow", "Test-only permissive rule.", lambda item, ctx: []),),
     )
 
@@ -43,6 +44,7 @@ def item(item_id=1, kind="Task", **extra):
             "System.Title": f"Work item {item_id}",
             "System.WorkItemType": kind,
             "System.TeamProject": "Demo Project",
+            "System.AreaPath": "Demo Project\\Team",
             **extra,
         },
     }

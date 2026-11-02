@@ -55,3 +55,9 @@ class CreationResult(BaseModel):
     created: bool
     validation: ValidationResult
     item: WorkItem | None = None
+
+
+class UpdateResult(BaseModel):
+    updated: bool
+    validation: ValidationResult
+    item: WorkItem | None = None

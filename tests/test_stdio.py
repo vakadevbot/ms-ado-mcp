@@ -13,13 +13,13 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
     rules.write_text(
         "import asyncio\n"
         "from ms_ado_mcp.models import Violation\n"
-        "from ms_ado_mcp.policy import ProjectPolicy, Rule\n"
+        "from ms_ado_mcp.policy import BoardScope, ProjectPolicy, Rule\n"
         "async def check(item, ctx):\n"
         "    print('checker started')\n"
         "    await asyncio.sleep(0.01)\n"
         "    print('checker finished')\n"
         "    return [Violation(code='demo.owner', message='Owner required')]\n"
-        "PROJECTS = [ProjectPolicy(name='Demo', rules=(\n"
+        "PROJECTS = [ProjectPolicy(name='Demo', write_scope=BoardScope('Demo\\\\Team'), rules=(\n"
         "    Rule('demo.owner', 'Owner must be filled.', check),\n"
         "))]\n",
     )
@@ -62,9 +62,18 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 "get_work_item_hierarchy",
                 "create_user_story",
                 "create_task",
+                "update_work_item",
                 "validate_work_item",
             }
             assert tools["create_task"].annotations.idempotentHint is False
+            for name in (
+                "create_task",
+                "create_user_story",
+                "create_my_work_item",
+                "update_work_item",
+            ):
+                assert "project" not in tools[name].inputSchema["properties"]
+                assert "board" not in tools[name].inputSchema["properties"]
             assert tools["create_my_work_item"].annotations.idempotentHint is False
             assert tools["list_my_work_items"].annotations.readOnlyHint is True
             assert tools["list_my_active_work_items"].annotations.readOnlyHint is True

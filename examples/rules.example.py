@@ -5,7 +5,7 @@ from html import unescape
 from html.parser import HTMLParser
 
 from ms_ado_mcp.models import Violation
-from ms_ado_mcp.policy import ProjectPolicy, Rule
+from ms_ado_mcp.policy import BoardScope, ProjectPolicy, Rule
 
 
 class TextContent(HTMLParser):
@@ -82,6 +82,12 @@ def task_parent_and_estimate(item, context):
 PROJECTS = [
     ProjectPolicy(
         name="Your Project",
+        # Fill these private paths locally; never send them to the MCP tool as arguments.
+        # At most ONE ProjectPolicy may enable writes. Without this, writes are disabled.
+        write_scope=BoardScope(
+            area_path="Your Project\\Your Team",
+            # iteration_path="Your Project\\Sprint 1",  # Optional fixed iteration.
+        ),
         # Change real type names here, including custom PI Goal.
         work_item_types={
             "user_story": "User Story",

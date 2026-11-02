@@ -35,6 +35,52 @@ RESERVED_FIELDS = {
     "system.changedby",
     "system.changeddate",
 }
+SCOPE_FIELDS = {
+    "system.areapath",
+    "system.iterationpath",
+    "system.boardcolumn",
+    "system.boardcolumndone",
+    "system.boardlane",
+}
+
+
+@dataclass(frozen=True)
+class BoardScope:
+    """Exact team area (and optionally iteration), controlled only by server policy."""
+
+    area_path: str
+    iteration_path: str | None = None
+
+    def __post_init__(self) -> None:
+        for path in (self.area_path, self.iteration_path):
+            if path is not None and (
+                not path.strip()
+                or path != path.strip()
+                or any(not part or part in {".", ".."} for part in path.split("\\"))
+                or any(ord(c) < 32 for c in path)
+            ):
+                raise ValueError("Board scope paths must be nonempty Azure paths.")
+
+    def contains(self, item: WorkItem) -> bool:
+        area = item.fields.get("System.AreaPath")
+        iteration = item.fields.get("System.IterationPath")
+        return (
+            isinstance(area, str)
+            and area.casefold() == self.area_path.casefold()
+            and (
+                self.iteration_path is None
+                or (
+                    isinstance(iteration, str)
+                    and iteration.casefold() == self.iteration_path.casefold()
+                )
+            )
+        )
+
+    def fields(self) -> dict[str, str]:
+        result = {"System.AreaPath": self.area_path}
+        if self.iteration_path is not None:
+            result["System.IterationPath"] = self.iteration_path
+        return result
 
 
 def check_field_names(fields: dict[str, JsonValue]) -> None:
@@ -79,10 +125,17 @@ class ProjectPolicy:
     active_states: dict[Kind, tuple[str, ...]] = field(default_factory=dict)
     defaults: dict[Kind, dict[str, JsonValue]] = field(default_factory=dict)
     guidance: str = ""
+    write_scope: BoardScope | None = None
 
     def __post_init__(self) -> None:
         if not self.name.strip() or self.name in {".", ".."}:
             raise ValueError("Project name must be nonempty.")
+        if self.write_scope is not None:
+            if not isinstance(self.write_scope, BoardScope):
+                raise ValueError("write_scope must be a BoardScope.")
+            for path in self.write_scope.fields().values():
+                if path.split("\\")[0].casefold() != self.name.casefold():
+                    raise ValueError("Board scope paths must belong to the policy project.")
         if not self.work_item_types or set(self.work_item_types) - DEFAULT_TYPES.keys():
             raise ValueError("Unsupported work item kind in project policy.")
         if any(not name.strip() for name in self.work_item_types.values()):
@@ -107,11 +160,15 @@ class ProjectPolicy:
             "Use field reference names in fields. Title must be nonblank and <=255 characters.",
             "Parent links must stay within the project. Do not invent business details.",
             "Call validate_work_item on the draft before creating; fix errors first.",
+            "Writes are restricted to Task/User Story in the server-managed team area. "
+            "Do not supply area/iteration/board fields."
+            if self.write_scope
+            else "Writes disabled: no BoardScope configured.",
             self.guidance,
         ]
         lines.extend(f"[{rule.code}] {rule.instructions}" for rule in rules)
         if not rules:
-            lines.append("No corporate checks configured: validation and creation are blocked.")
+            lines.append("No corporate checks configured: validation and writes are blocked.")
         return "\n".join(line for line in lines if line)
 
 
@@ -135,6 +192,8 @@ def load_policies(path: Path | None, default_project: str | None) -> dict[str, P
         if not all(isinstance(p, ProjectPolicy) for p in projects):
             raise ValueError
         result = {p.name: p for p in projects}
+        if sum(p.write_scope is not None for p in projects) > 1:
+            raise ValueError("Only one project may have a write scope.")
         if len(result) != len(projects):
             raise ValueError
         if default_project and default_project not in result:

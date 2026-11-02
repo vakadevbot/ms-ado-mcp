@@ -58,10 +58,13 @@ class AzureDevOpsClient:
         patch: bool = False,
         collection_scoped: bool = False,
     ) -> dict:
-        is_create = patch
         uncertain = (
-            " Creation may have succeeded; search for the item before retrying."
-            if is_create
+            (
+                " Update may have succeeded; read the item before retrying."
+                if method == "PATCH"
+                else " Creation may have succeeded; search for the item before retrying."
+            )
+            if patch
             else ""
         )
         try:
@@ -109,6 +112,8 @@ class AzureDevOpsClient:
                 403: "Check PAT Work Items permissions and project access.",
                 404: "Project, work item, type, or API endpoint was not found.",
                 407: "Proxy authentication required; check proxy credentials and HTTPS_PROXY.",
+                409: "Work item changed concurrently; read it again before editing.",
+                412: "Work item revision changed; read it again before editing.",
                 429: "Rate limit reached; try later.",
             }
             # Raw response bodies/URLs can echo private fields or credentials.
@@ -267,5 +272,16 @@ class AzureDevOpsClient:
             "workitems",
             body=patch,
             patch=True,
+        )
+        return self.checked_item(raw, project)
+
+    async def update(self, project: str, current: WorkItem, changes: dict[str, Any]) -> WorkItem:
+        patch = [{"op": "test", "path": "/rev", "value": current.rev}]
+        patch.extend(
+            {"op": "add", "path": f"/fields/{name}", "value": value}
+            for name, value in changes.items()
+        )
+        raw = await self.request(
+            "PATCH", project, f"workitems/{current.id}", "workitems", body=patch, patch=True
         )
         return self.checked_item(raw, project)
