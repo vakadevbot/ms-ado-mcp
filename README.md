@@ -26,9 +26,53 @@ PAT: **Work Items → Read & write**; для чтения достаточно R
 ```
 
 Сервер ждёт MCP-сообщения на stdin; отсутствие вывода при запуске нормально.
-stdout занят протоколом, диагностика идёт в stderr. На Windows используйте
-`py -3.12 -m venv .venv`, `.venv\Scripts\python.exe` и `.venv\Scripts\ms-ado-mcp.exe`;
-файлы скопируйте средствами вашей оболочки.
+stdout занят протоколом, диагностика идёт в stderr.
+
+### Windows (PowerShell)
+
+Установите Python 3.12 с Python Launcher (`py`) и Git for Windows.
+Откройте PowerShell в каталоге, где хотите разместить проект:
+
+```powershell
+py -3.12 --version
+git clone https://github.com/vakadevbot/ms-ado-mcp.git
+cd ms-ado-mcp
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force private | Out-Null
+Copy-Item examples\rules.example.py private\rules.py
+notepad .env
+notepad private\rules.py
+```
+
+Заполните URL, PAT и проект в `.env`, а в `private\rules.py` настройте проект,
+типы и правила, как описано выше. Для доступа только на чтение без правил
+оставьте `ADO_RULES_FILE=` пустым. При повторной настройке сохраните существующие
+`.env` и `private\rules.py`: команды `Copy-Item` перезаписывают эти файлы.
+
+Запустите сервер из каталога проекта:
+
+```powershell
+.\.venv\Scripts\ms-ado-mcp.exe --env-file "$PWD\.env"
+```
+
+Активация виртуального окружения не требуется; менять Execution Policy для
+этих команд не нужно. Сервер ожидает MCP-запросы; для остановки нажмите `Ctrl+C`.
+
+В конфигурации OpenCode ниже замените пути на Windows-пути с прямыми слешами,
+например `C:/Users/YourName/ms-ado-mcp/.venv/Scripts/ms-ado-mcp.exe` и
+`C:/Users/YourName/ms-ado-mcp/.env`. Если в JSON используются обратные слеши,
+их нужно удваивать (`C:\\Users\\YourName\\ms-ado-mcp\\.env`).
+
+Для разработки установите дополнительные зависимости и запустите проверки:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\ruff.exe check .
+.\.venv\Scripts\ruff.exe format --check .
+```
 
 ## OpenCode v2
 
