@@ -64,6 +64,8 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 "create_task",
                 "update_work_item",
                 "validate_work_item",
+                "validate_my_active_work_items",
+                "validate_my_work_items",
             }
             assert tools["create_task"].annotations.idempotentHint is False
             for name in (
@@ -79,6 +81,8 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             assert tools["list_my_active_work_items"].annotations.readOnlyHint is True
             assert tools["get_current_user"].annotations.readOnlyHint is True
             assert tools["validate_work_item"].annotations.readOnlyHint is True
+            assert tools["validate_my_active_work_items"].annotations.readOnlyHint is True
+            assert tools["validate_my_work_items"].annotations.readOnlyHint is True
             assert (
                 tools["list_active_work_items"].inputSchema["properties"]["limit"]["maximum"] == 200
             )

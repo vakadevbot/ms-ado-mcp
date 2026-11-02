@@ -1,10 +1,15 @@
+import asyncio
 from copy import deepcopy
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from pydantic import JsonValue
 
-from .client import CHILD, PARENT, AzureDevOpsClient
+from .client import CHILD, PARENT, AzureDevOpsClient, AzureDevOpsError
+from .diagnostics import logger
 from .models import (
+    BatchValidationEntry,
+    BatchValidationResult,
     CreationResult,
     Hierarchy,
     Kind,
@@ -33,6 +38,22 @@ def positive_id(value: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError("Work item IDs must be positive integers.")
     return value
+
+
+def creation_timestamp(value: str) -> datetime:
+    """Accept ISO dates (UTC midnight) or timestamps with an explicit timezone."""
+    try:
+        if len(value) == 10:
+            parsed = datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=UTC)
+        else:
+            parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            raise ValueError
+        return parsed.astimezone(UTC)
+    except ValueError:
+        raise ValueError(
+            "Creation date filters must be YYYY-MM-DD (UTC) or ISO timestamps with timezone."
+        ) from None
 
 
 class WorkItemService:
@@ -94,6 +115,8 @@ class WorkItemService:
         active_only: bool = False,
         assigned_to: str | None = None,
         created_by: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
         area_path: str | None = None,
         iteration_path: str | None = None,
         limit: int = 50,
@@ -107,6 +130,13 @@ class WorkItemService:
         if not selected:
             raise ValueError("Select at least one work item kind.")
         filters = ["[System.TeamProject] = @project", f"[System.Id] > {after_id}"]
+        lower = creation_timestamp(created_since) if created_since is not None else None
+        upper = creation_timestamp(created_before) if created_before is not None else None
+        if lower is not None and upper is not None and lower >= upper:
+            raise ValueError("created_since must be earlier than created_before.")
+        for operator, timestamp in ((">=", lower), ("<", upper)):
+            if timestamp is not None:
+                filters.append(f"[System.CreatedDate] {operator} {literal(timestamp.isoformat())}")
         type_filters = []
         for kind in dict.fromkeys(selected):
             type_name = self.type_name(policy, kind)
@@ -194,6 +224,100 @@ class WorkItemService:
             limit=limit,
             after_id=after_id,
             as_of=as_of,
+        )
+
+    async def validate_my_items(
+        self,
+        *,
+        active_only: bool,
+        project: str | None = None,
+        kinds: list[Kind] | None = None,
+        iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
+        max_items: int = 200,
+        after_id: int = 0,
+        as_of: str | None = None,
+    ) -> BatchValidationResult:
+        policy = self.policy(project)
+        if not 1 <= max_items <= 1000:
+            raise ValueError("max_items must be 1–1000.")
+        if iteration_path is not None:
+            parts = iteration_path.split("\\")
+            if (
+                len(parts) < 2
+                or parts[0].casefold() != policy.name.casefold()
+                or any(not p.strip() or p != p.strip() or p in {".", ".."} for p in parts)
+            ):
+                raise ValueError("iteration_path must identify a sprint/PI below the project root.")
+            literal(iteration_path)
+        if not active_only and iteration_path is None and created_since is None:
+            raise ValueError(
+                "Provide iteration_path (sprint/PI) or created_since; "
+                "validating the entire work item history is not allowed."
+            )
+        results: list[BatchValidationEntry] = []
+        cursor = after_id
+        snapshot = as_of
+        next_cursor = None
+        semaphore = asyncio.Semaphore(4)
+
+        async def validate_one(item: WorkItem) -> BatchValidationEntry:
+            item_id = positive_id(item.id)
+            title = item.fields.get("System.Title")
+            title = title if isinstance(title, str) else None
+            async with semaphore:
+                try:
+                    # Use exactly the same existing-item validation as validate_work_item.
+                    report = await self.validate_item(project=policy.name, item_id=item_id)
+                    return BatchValidationEntry(
+                        work_item_id=item_id, title=title, validation=report
+                    )
+                except Exception as exc:
+                    # Never echo arbitrary exception text/private rule source or work item data.
+                    message = (
+                        str(exc)
+                        if isinstance(exc, AzureDevOpsError)
+                        else (
+                            "Validation could not complete; "
+                            "check work item type, scope and project rules."
+                        )
+                    )
+                    logger.error(
+                        "Batch validation failed: item_id=%s error=%s", item_id, type(exc).__name__
+                    )
+                    return BatchValidationEntry(work_item_id=item_id, title=title, error=message)
+
+        while len(results) < max_items:
+            page = await self.search(
+                project=policy.name,
+                kinds=kinds,
+                active_only=active_only,
+                assigned_to="@Me",
+                iteration_path=iteration_path,
+                created_since=created_since,
+                created_before=created_before,
+                limit=min(200, max_items - len(results)),
+                after_id=cursor,
+                as_of=snapshot,
+            )
+            snapshot = page.as_of or snapshot
+            next_cursor = page.next_after_id
+            results.extend(await asyncio.gather(*(validate_one(item) for item in page.items)))
+            if next_cursor is None:
+                break
+            if next_cursor <= cursor or not page.items:
+                raise ValueError("Azure returned an invalid pagination cursor; batch stopped.")
+            cursor = next_cursor
+        return BatchValidationResult(
+            selected_count=len(results),
+            valid_count=sum(r.validation is not None and r.validation.valid for r in results),
+            invalid_count=sum(r.validation is not None and not r.validation.valid for r in results),
+            error_count=sum(r.error is not None for r in results),
+            complete=next_cursor is None,
+            next_after_id=next_cursor,
+            as_of=snapshot,
+            results=results,
         )
 
     async def create_my_work_item(

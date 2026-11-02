@@ -14,6 +14,7 @@ from .client import AzureDevOpsClient
 from .config import ConfigurationError, Settings, load_settings
 from .diagnostics import configure_error_log, logger
 from .models import (
+    BatchValidationResult,
     CreationResult,
     CurrentUser,
     Hierarchy,
@@ -29,6 +30,7 @@ from .service import WorkItemService, positive_id
 Limit = Annotated[int, Field(ge=1, le=200)]
 Cursor = Annotated[int, Field(ge=0)]
 ItemId = Annotated[int, Field(gt=0)]
+BatchLimit = Annotated[int, Field(ge=1, le=1000)]
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
 CREATE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
@@ -61,6 +63,10 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         "For 'my' items use list_my_work_items: @Me is the PAT owner, no user ID is needed. "
         "For 'my active work items' use list_my_active_work_items, which always filters "
         "AssignedTo=@Me and the project's active states. "
+        "Use validate_my_active_work_items for a bulk audit of my active items, or "
+        "validate_my_work_items with a sprint/PI iteration or created_since date. "
+        "If complete=false, continue with next_after_id/as_of and the same filters; "
+        "do not report the audit as complete. These tools never edit work items. "
         "get_current_user shows this identity. Every creation is authored by the PAT owner; "
         "create_my_work_item also assigns the item to that user and enforces project rules.\n\n"
         + "\n\n".join(policy.instructions() for policy in policies.values())
@@ -137,6 +143,71 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
             area_path=area_path,
             iteration_path=iteration_path,
             limit=limit,
+            after_id=after_id,
+            as_of=as_of,
+        )
+
+    @server.tool(annotations=READ)
+    async def validate_my_active_work_items(
+        project: str | None = None,
+        kinds: list[Kind] | None = None,
+        iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
+        max_items: BatchLimit = 200,
+        after_id: Cursor = 0,
+        as_of: str | None = None,
+    ) -> BatchValidationResult:
+        """Validate all my active work items with the same checks as validate_work_item.
+
+        Uses AssignedTo=@Me and the project's active-state/type policy. Optional iteration
+        includes descendants (a sprint or entire PI). Creation dates are inclusive since,
+        exclusive before: YYYY-MM-DD is UTC midnight, or use an ISO timestamp with timezone.
+        Read-only; per-item failures are returned separately from rule violations.
+        Processes up to max_items per call, automatically fetching pages. If complete=false,
+        repeat with next_after_id as after_id, returned as_of and identical filters.
+        """
+        return await service.validate_my_items(
+            active_only=True,
+            project=project,
+            kinds=kinds,
+            iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
+            max_items=max_items,
+            after_id=after_id,
+            as_of=as_of,
+        )
+
+    @server.tool(annotations=READ)
+    async def validate_my_work_items(
+        project: str | None = None,
+        kinds: list[Kind] | None = None,
+        iteration_path: str | None = None,
+        created_since: str | None = None,
+        created_before: str | None = None,
+        max_items: BatchLimit = 200,
+        after_id: Cursor = 0,
+        as_of: str | None = None,
+    ) -> BatchValidationResult:
+        """Validate my assigned work items in ALL states, bounded by iteration or creation date.
+
+        REQUIRED: iteration_path below the project root (sprint/PI, including descendants)
+        OR created_since. created_before alone is not enough; no unbounded history scans.
+        Both iteration and date filters may be combined. Since is inclusive; before exclusive.
+        Dates: YYYY-MM-DD (UTC) or ISO timestamps with timezone. No work items are modified.
+        Uses the same existing-item checks as validate_work_item and configured work item kinds.
+        Returns per-item violations/errors and totals. If complete=false, continue with
+        next_after_id as after_id, as_of and identical filters until complete=true.
+        """
+        return await service.validate_my_items(
+            active_only=False,
+            project=project,
+            kinds=kinds,
+            iteration_path=iteration_path,
+            created_since=created_since,
+            created_before=created_before,
+            max_items=max_items,
             after_id=after_id,
             as_of=as_of,
         )

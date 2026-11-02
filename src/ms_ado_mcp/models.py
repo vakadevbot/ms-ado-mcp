@@ -61,3 +61,21 @@ class UpdateResult(BaseModel):
     updated: bool
     validation: ValidationResult
     item: WorkItem | None = None
+
+
+class BatchValidationEntry(BaseModel):
+    work_item_id: int
+    title: str | None = None
+    validation: ValidationResult | None = None
+    error: str | None = None
+
+
+class BatchValidationResult(BaseModel):
+    selected_count: int
+    valid_count: int
+    invalid_count: int
+    error_count: int
+    complete: bool
+    next_after_id: int | None = None
+    as_of: str | None = None
+    results: list[BatchValidationEntry]
