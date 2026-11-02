@@ -11,7 +11,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field, JsonValue
 
 from .client import AzureDevOpsClient
-from .config import Settings, load_settings
+from .config import ConfigurationError, Settings, load_settings
 from .models import CreationResult, Hierarchy, Kind, ValidationResult, WorkItem, WorkItemPage
 from .policy import ProjectPolicy, load_policies
 from .service import WorkItemService, positive_id
@@ -231,16 +231,44 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    env_file = args.env_file.expanduser().resolve()
+    stage = "settings"
     try:
-        settings = load_settings(args.env_file)
+        settings = load_settings(env_file)
+        stage = "rules"
+        if settings.rules_file is not None and not settings.rules_file.is_file():
+            raise ConfigurationError(
+                f"ADO_RULES_FILE does not point to an existing file: {settings.rules_file}\n"
+                "Set the correct path, or leave ADO_RULES_FILE= empty for read-only access."
+            )
         policies = load_policies(settings.rules_file, settings.project)
+        stage = "client"
+        if settings.ca_bundle is not None and not settings.ca_bundle.is_file():
+            raise ConfigurationError(
+                f"ADO_CA_BUNDLE does not point to an existing PEM file: {settings.ca_bundle}"
+            )
         server = build_server(settings, policies)
-    except (ValueError, OSError):
-        # No exception repr/traceback: private rule source and .env values must not be logged.
+    except (ValueError, OSError) as exc:
+        # Only explicitly safe diagnostics may be printed; third-party exceptions can
+        # contain credentials, private rule source or configured values.
+        if isinstance(exc, ConfigurationError):
+            reason = str(exc)
+        elif stage == "rules":
+            reason = (
+                "Cannot load project rules. Set AZURE_DEVOPS_PROJECT for read-only access, "
+                "or check ADO_RULES_FILE: trusted Python code must export a nonempty "
+                "PROJECTS list with unique project names matching AZURE_DEVOPS_PROJECT."
+            )
+        elif stage == "client":
+            reason = "Cannot initialize HTTPS client. Check ADO_CA_BUNDLE PEM format/permissions."
+        else:
+            reason = "Cannot read settings. Check .env paths, permissions and parameter formats."
         parser.exit(
             2,
-            "Configuration error: check .env URL/PAT, API version, timeout, CA path, "
-            "and ADO_RULES_FILE/PROJECTS. See README.md.\n",
+            f"Configuration error: {reason}\n"
+            f"Env file: {env_file} ({'found' if env_file.is_file() else 'not found'})\n"
+            "Process environment variables override .env. Relative rules/CA paths are "
+            "resolved against the .env directory. Secret values are not shown.\n",
         )
     server.run(transport="stdio")
 
