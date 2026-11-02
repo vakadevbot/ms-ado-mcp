@@ -28,9 +28,7 @@ async def test_current_user_uses_collection_and_pat_identity(settings, api_versi
     def handler(request):
         assert request.method == "GET"
         assert request.url.path == "/collection/_apis/connectionData"
-        assert request.url.params["api-version"] == (
-            "6.1" if api_version == "6.1" else "6.1-preview.1"
-        )
+        assert request.url.params["api-version"] == "6.1-preview.1"
         assert request.headers["authorization"].startswith("Basic ")
         return httpx.Response(
             200,

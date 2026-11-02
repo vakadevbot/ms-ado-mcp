@@ -28,7 +28,9 @@ def settings():
 def policy():
     return ProjectPolicy(
         name="Demo Project",
-        write_scope=BoardScope(area_path="Demo Project\\Team"),
+        write_scope=BoardScope(
+            area_path="Demo Project\\Team", iteration_path="Demo Project\\Sprint"
+        ),
         rules=(Rule("test.allow", "Test-only permissive rule.", lambda item, ctx: []),),
     )
 
@@ -57,6 +59,7 @@ def item(item_id=1, kind="Task", **extra):
             "System.WorkItemType": kind,
             "System.TeamProject": "Demo Project",
             "System.AreaPath": "Demo Project\\Team",
+            "System.IterationPath": "Demo Project\\Sprint",
             "System.CreatedBy": {"id": AUTHOR_ID, "uniqueName": "me@example.org"},
             **extra,
         },

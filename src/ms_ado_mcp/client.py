@@ -118,7 +118,7 @@ class AzureDevOpsClient:
             }
             # Raw response bodies/URLs can echo private fields or credentials.
             message = (
-                f"Azure DevOps HTTP {response.status_code}. "
+                f"Azure DevOps HTTP {response.status_code} during {method} {endpoint}. "
                 + hints.get(response.status_code, "Request failed.")
                 + (uncertain if response.status_code >= 500 else "")
             )
@@ -162,6 +162,13 @@ class AzureDevOpsClient:
             properties = identity.get("properties") or {}
             account = properties.get("Account") if isinstance(properties, dict) else None
             unique_name = account.get("$value") if isinstance(account, dict) else None
+        # On-premises identities may expose separate Domain and Account properties.
+        properties = identity.get("properties") or {}
+        domain = properties.get("Domain") if isinstance(properties, dict) else None
+        domain = domain.get("$value") if isinstance(domain, dict) else None
+        if isinstance(unique_name, str) and isinstance(domain, str) and domain:
+            if not any(c in unique_name for c in ("@", "\\", "/")):
+                unique_name = f"{domain}\\{unique_name}"
         return CurrentUser(
             id=identity["id"],
             display_name=identity.get("customDisplayName")
@@ -218,7 +225,7 @@ class AzureDevOpsClient:
             project,
             "wiql",
             "wiql",
-            params={"$top": limit},
+            params={"$top": limit, "timePrecision": "true"},
             body={"query": wiql},
         )
 

@@ -54,8 +54,8 @@ async def test_list_search_tools_forward_windows_to_wiql(
         assert request.url.path.endswith("/wiql")
         query = json.loads(request.content)["query"]
         if window == "date":
-            assert "[System.CreatedDate] >= '2026-08-01T00:00:00+00:00'" in query
-            assert "[System.CreatedDate] < '2026-09-01T00:00:00+00:00'" in query
+            assert "[System.CreatedDate] >= '2026-08-01T00:00:00Z'" in query
+            assert "[System.CreatedDate] < '2026-09-01T00:00:00Z'" in query
         else:
             assert "[System.IterationPath] UNDER 'Demo Project\\PI 5'" in query
         for type_name in policy.work_item_types.values():

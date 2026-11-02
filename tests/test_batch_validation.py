@@ -62,8 +62,8 @@ async def test_audit_uses_individual_validation_and_reports_errors(
             query = json.loads(request.content)["query"]
             assert "[System.AssignedTo] = @Me" in query
             assert "[System.IterationPath] UNDER 'Demo Project\\PI 5'" in query
-            assert "[System.CreatedDate] >= '2026-07-31T21:00:00+00:00'" in query
-            assert "[System.CreatedDate] < '2026-09-01T00:00:00+00:00'" in query
+            assert "[System.CreatedDate] >= '2026-07-31T21:00:00Z'" in query
+            assert "[System.CreatedDate] < '2026-09-01T00:00:00Z'" in query
             assert ("[System.State] IN ('Doing')" in query) == active_only
             return httpx.Response(
                 200,
@@ -105,7 +105,7 @@ async def test_all_states_audit_requires_no_write_scope_and_keeps_missing_rules_
         if request.url.path.endswith("/wiql"):
             query = json.loads(request.content)["query"]
             assert "[System.State]" not in query
-            assert "[System.CreatedDate] >= '2026-08-01T00:00:00+00:00'" in query
+            assert "[System.CreatedDate] >= '2026-08-01T00:00:00Z'" in query
             return httpx.Response(200, json={"workItems": [{"id": 1}]})
         if request.url.path.endswith("/workitemsbatch"):
             return httpx.Response(200, json={"value": [item()]})

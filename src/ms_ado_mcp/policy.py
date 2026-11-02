@@ -61,14 +61,15 @@ class BoardScope:
             ):
                 raise ValueError("Board scope paths must be nonempty Azure paths.")
 
-    def contains(self, item: WorkItem) -> bool:
+    def contains(self, item: WorkItem, *, check_iteration: bool = True) -> bool:
         area = item.fields.get("System.AreaPath")
         iteration = item.fields.get("System.IterationPath")
         return (
             isinstance(area, str)
             and area.casefold() == self.area_path.casefold()
             and (
-                self.iteration_path is None
+                not check_iteration
+                or self.iteration_path is None
                 or (
                     isinstance(iteration, str)
                     and iteration.casefold() == self.iteration_path.casefold()
@@ -126,6 +127,31 @@ class ProjectPolicy:
     defaults: dict[Kind, dict[str, JsonValue]] = field(default_factory=dict)
     guidance: str = ""
     write_scope: BoardScope | None = None
+
+    def creation_iteration(self, kind: Kind) -> str:
+        iteration = self.write_scope.iteration_path if self.write_scope else None
+        if iteration is None:
+            matches = [
+                v
+                for k, v in self.defaults.get(kind, {}).items()
+                if k.lower() == "system.iterationpath"
+            ]
+            if len(matches) == 1:
+                iteration = matches[0]
+        if not isinstance(iteration, str):
+            raise ValueError(
+                "Creation/move blocked: configure BoardScope.iteration_path or "
+                "defaults for System.IterationPath in private rules. "
+                "Refusing to use the project root as a sprint."
+            )
+        # A trusted default must still name a concrete iteration inside this project.
+        BoardScope(area_path=self.name, iteration_path=iteration)
+        parts = iteration.split("\\")
+        if len(parts) < 2 or parts[0].casefold() != self.name.casefold():
+            raise ValueError(
+                "Configured creation iteration must be a sprint/PI below the project root."
+            )
+        return iteration
 
     def __post_init__(self) -> None:
         if not self.name.strip() or self.name in {".", ".."}:

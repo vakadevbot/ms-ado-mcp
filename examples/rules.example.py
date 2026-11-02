@@ -86,7 +86,7 @@ PROJECTS = [
         # At most ONE ProjectPolicy may enable writes. Without this, writes are disabled.
         write_scope=BoardScope(
             area_path="Your Project\\Your Team",
-            # iteration_path="Your Project\\Sprint 1",  # Optional fixed iteration.
+            iteration_path="Your Project\\Sprint 1",  # Set your sprint locally.
         ),
         # Change real type names here, including custom PI Goal.
         work_item_types={

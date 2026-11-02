@@ -19,7 +19,8 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
         "    await asyncio.sleep(0.01)\n"
         "    print('checker finished')\n"
         "    return [Violation(code='demo.owner', message='Owner required')]\n"
-        "PROJECTS = [ProjectPolicy(name='Demo', write_scope=BoardScope('Demo\\\\Team'), rules=(\n"
+        "PROJECTS = [ProjectPolicy(name='Demo', "
+        "write_scope=BoardScope('Demo\\\\Team', 'Demo\\\\Sprint'), rules=(\n"
         "    Rule('demo.owner', 'Owner must be filled.', check),\n"
         "))]\n",
     )

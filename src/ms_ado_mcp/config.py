@@ -46,6 +46,9 @@ class Settings:
             raise ConfigurationError("ADO_HTTP_TIMEOUT must be a number greater than 0 and <=300.")
 
     def version(self, endpoint: str) -> str:
+        if endpoint == "connectiondata":
+            # Location/connectionData is preview-only, even when WIT uses stable 6.1.
+            return "6.1-preview.1"
         if self.api_version == "6.1":
             return "6.1"
         revision = {

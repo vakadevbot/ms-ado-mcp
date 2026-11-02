@@ -59,6 +59,9 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         "iteration or board routing fields to write tools. "
         "Only items created by the PAT owner may be edited. Only Task/User Story can be "
         "created or edited; Features are read-only. Use update_work_item for edits. "
+        "Creation requires a concrete iteration in private policy; never create at the "
+        "project root. To repair my item's iteration use update_work_item with "
+        "use_configured_iteration=true; do not try arbitrary paths or different tools. "
         "Validation checks configured corporate rules, not every Azure server-side rule. "
         "After an ambiguous network failure, check for duplicates before retrying creation.\n\n"
         "For 'my' items use search_my_work_items: @Me is the PAT owner, no user ID is needed. "
@@ -392,6 +395,7 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         description: str | None = None,
         state: str | None = None,
         fields: dict[str, JsonValue] | None = None,
+        use_configured_iteration: bool = False,
     ) -> UpdateResult:
         """Edit a Task or User Story only within the server-configured team scope.
 
@@ -400,9 +404,16 @@ def build_server(settings: Settings, policies: dict[str, ProjectPolicy]) -> Fast
         Features and other work item types cannot be edited. Corporate rules validate
         the proposed item before PATCH. Uses a revision test; on a conflict, read again.
         Omitted fields are unchanged. No parent/link edits or raw patch operations.
+        use_configured_iteration=true moves my item to the iteration set in private policy;
+        no caller-supplied path is accepted. Source must still be my item in the exact team area.
         """
         return await service.update(
-            item_id, title=title, description=description, state=state, fields=fields
+            item_id,
+            title=title,
+            description=description,
+            state=state,
+            fields=fields,
+            use_configured_iteration=use_configured_iteration,
         )
 
     @server.prompt()

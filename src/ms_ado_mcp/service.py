@@ -115,8 +115,12 @@ class WorkItemService:
             raise ValueError("Area, iteration and board fields are managed by the server policy.")
 
     @staticmethod
-    def require_in_scope(policy: ProjectPolicy, item: WorkItem) -> None:
-        if policy.write_scope is None or not policy.write_scope.contains(item):
+    def require_in_scope(
+        policy: ProjectPolicy, item: WorkItem, *, check_iteration: bool = True
+    ) -> None:
+        if policy.write_scope is None or not policy.write_scope.contains(
+            item, check_iteration=check_iteration
+        ):
             raise ValueError("Work item is outside the configured team scope; write forbidden.")
 
     @staticmethod
@@ -191,7 +195,8 @@ class WorkItemService:
             raise ValueError("created_since must be earlier than created_before.")
         for operator, timestamp in ((">=", lower), ("<", upper)):
             if timestamp is not None:
-                filters.append(f"[System.CreatedDate] {operator} {literal(timestamp.isoformat())}")
+                timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
+                filters.append(f"[System.CreatedDate] {operator} {literal(timestamp_text)}")
         type_filters = []
         for kind in dict.fromkeys(selected):
             type_name = self.type_name(policy, kind)
@@ -435,6 +440,7 @@ class WorkItemService:
             # Remove case aliases from defaults before setting server-owned routing fields.
             values = {k: v for k, v in values.items() if k.lower() not in SCOPE_FIELDS}
             values.update(policy.write_scope.fields())
+            values["System.IterationPath"] = policy.creation_iteration(kind)
         values.update(
             {
                 "System.Title": title,
@@ -540,6 +546,7 @@ class WorkItemService:
         description: str | None = None,
         state: str | None = None,
         fields: dict[str, JsonValue] | None = None,
+        use_configured_iteration: bool = False,
     ) -> UpdateResult:
         policy = self.write_policy()
         changes = dict(fields or {})
@@ -552,10 +559,10 @@ class WorkItemService:
             changes["System.Title"] = title
         if description is not None:
             changes["System.Description"] = description
-        if not changes:
+        if not changes and not use_configured_iteration:
             raise ValueError("Provide at least one change.")
         current = await self.client.get_item(policy.name, positive_id(item_id))
-        self.require_in_scope(policy, current)
+        self.require_in_scope(policy, current, check_iteration=not use_configured_iteration)
         kind = next(
             (
                 k
@@ -570,6 +577,8 @@ class WorkItemService:
             raise ValueError("Azure did not return a valid revision; update forbidden.")
         user = await self.client.current_user()
         self.require_created_by(current, user)
+        if use_configured_iteration:
+            changes["System.IterationPath"] = policy.creation_iteration(kind)
         proposed = current.model_copy(deep=True)
         proposed.fields.update(changes)
         self.require_in_scope(policy, proposed)
