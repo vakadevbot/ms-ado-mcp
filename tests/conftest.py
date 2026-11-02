@@ -6,6 +6,18 @@ from ms_ado_mcp.config import Settings
 from ms_ado_mcp.policy import BoardScope, ProjectPolicy, Rule
 from ms_ado_mcp.service import WorkItemService
 
+AUTHOR_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def authenticated_user():
+    return {
+        "authenticatedUser": {
+            "id": AUTHOR_ID,
+            "providerDisplayName": "Me",
+            "uniqueName": "me@example.org",
+        }
+    }
+
 
 @pytest.fixture
 def settings():
@@ -45,6 +57,7 @@ def item(item_id=1, kind="Task", **extra):
             "System.WorkItemType": kind,
             "System.TeamProject": "Demo Project",
             "System.AreaPath": "Demo Project\\Team",
+            "System.CreatedBy": {"id": AUTHOR_ID, "uniqueName": "me@example.org"},
             **extra,
         },
     }

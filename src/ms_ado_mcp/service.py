@@ -2,6 +2,7 @@ import asyncio
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import JsonValue
 
@@ -11,6 +12,7 @@ from .models import (
     BatchValidationEntry,
     BatchValidationResult,
     CreationResult,
+    CurrentUser,
     Hierarchy,
     Kind,
     Relation,
@@ -116,6 +118,26 @@ class WorkItemService:
     def require_in_scope(policy: ProjectPolicy, item: WorkItem) -> None:
         if policy.write_scope is None or not policy.write_scope.contains(item):
             raise ValueError("Work item is outside the configured team scope; write forbidden.")
+
+    @staticmethod
+    def require_created_by(item: WorkItem, user: CurrentUser) -> None:
+        creator = item.fields.get("System.CreatedBy")
+        try:
+            if not isinstance(creator, dict):
+                raise ValueError
+            actor_id = UUID(user.id)
+            creator_id = UUID(creator.get("id", ""))
+            if actor_id.int == 0 or creator_id.int == 0:
+                raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError(
+                "Cannot verify creator identity; editing/linking is forbidden. "
+                "System.CreatedBy must include an immutable Azure identity ID."
+            ) from None
+        if creator_id != actor_id:
+            raise ValueError(
+                "Only work items created by the configured PAT owner may be edited/linked."
+            )
 
     def policy(self, project: str | None) -> ProjectPolicy:
         name = project or self.default_project
@@ -437,11 +459,17 @@ class WorkItemService:
         item: WorkItem,
         kind: Kind,
         scope: Literal["draft", "existing"],
+        *,
+        require_owned_parents: bool = False,
     ) -> ValidationResult:
         hierarchy = await self.hierarchy_for(policy.name, item)
         if policy.write_scope is not None:
             for parent in hierarchy.parents:
                 self.require_in_scope(policy, parent)
+        if require_owned_parents and hierarchy.parents:
+            user = await self.client.current_user()
+            for parent in hierarchy.parents:
+                self.require_created_by(parent, user)
         context = ValidationContext(
             project=policy.name,
             kind=kind,
@@ -498,7 +526,7 @@ class WorkItemService:
             raise ValueError("Only user stories and tasks can be created.")
         policy = self.write_policy(project)
         item = self.draft(policy, kind, title, description, fields, parent_id)
-        report = await self.check(policy, item, kind, "draft")
+        report = await self.check(policy, item, kind, "draft", require_owned_parents=True)
         if not report.valid:
             return CreationResult(created=False, validation=report)
         created = await self.client.create(policy.name, self.type_name(policy, kind), item)
@@ -540,6 +568,8 @@ class WorkItemService:
             raise ValueError("Only Task and User Story can be edited; Features are read-only.")
         if isinstance(current.rev, bool) or current.rev is None or current.rev <= 0:
             raise ValueError("Azure did not return a valid revision; update forbidden.")
+        user = await self.client.current_user()
+        self.require_created_by(current, user)
         proposed = current.model_copy(deep=True)
         proposed.fields.update(changes)
         self.require_in_scope(policy, proposed)

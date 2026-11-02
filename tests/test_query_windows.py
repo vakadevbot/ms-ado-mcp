@@ -37,9 +37,8 @@ async def test_my_history_also_requires_window(make_service, relationship):
 @pytest.mark.parametrize(
     "tool",
     [
-        "list_my_work_items",
+        "search_my_work_items",
         "search_work_items",
-        "list_active_work_items",
         "list_my_active_work_items",
     ],
 )
@@ -73,7 +72,7 @@ async def test_list_search_tools_forward_windows_to_wiql(
         if window == "date"
         else {"iteration_path": "Demo Project\\PI 5"}
     )
-    if tool == "search_work_items":
+    if tool in {"search_work_items", "search_my_work_items"}:
         args["text"] = "auth"
     try:
         await server.call_tool(tool, args)
@@ -85,9 +84,8 @@ async def test_list_search_tools_forward_windows_to_wiql(
 @pytest.mark.parametrize(
     "tool",
     [
-        "list_my_work_items",
+        "search_my_work_items",
         "search_work_items",
-        "list_active_work_items",
         "list_my_active_work_items",
     ],
 )
@@ -111,7 +109,7 @@ async def test_active_tools_need_no_window_and_include_all_kinds(
     monkeypatch.setattr(server_module, "AzureDevOpsClient", lambda settings: client)
     server = server_module.build_server(settings, {policy.name: policy})
     args = {} if "active" in tool else {"active_only": True}
-    if tool == "search_work_items":
+    if tool in {"search_work_items", "search_my_work_items"}:
         args["text"] = "auth"
     try:
         await server.call_tool(tool, args)

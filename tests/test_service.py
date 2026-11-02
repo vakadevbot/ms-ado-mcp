@@ -9,7 +9,7 @@ from ms_ado_mcp.models import Violation
 from ms_ado_mcp.policy import Rule
 from ms_ado_mcp.service import literal
 
-from .conftest import item
+from .conftest import authenticated_user, item
 
 
 async def test_active_categories_custom_states_and_pagination(make_service):
@@ -202,6 +202,8 @@ async def test_create_sends_validated_defaults_and_atomic_parent_link(make_servi
 
     def handler(request):
         calls.append(request)
+        if request.url.path.endswith("/connectionData"):
+            return httpx.Response(200, json=authenticated_user())
         if request.url.path.endswith("/workitemsbatch"):
             return httpx.Response(200, json={"value": [item(10, kind="User Story")]})
         assert checked == [True]
@@ -228,7 +230,7 @@ async def test_create_sends_validated_defaults_and_atomic_parent_link(make_servi
         parent_id=10,
     )
     assert result.created and result.item.id == 42
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 @pytest.mark.parametrize(

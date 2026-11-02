@@ -8,7 +8,7 @@ from ms_ado_mcp.client import AzureDevOpsError
 from ms_ado_mcp.models import Violation
 from ms_ado_mcp.policy import BoardScope, ProjectPolicy, Rule, load_policies
 
-from .conftest import item
+from .conftest import authenticated_user, item
 
 
 async def test_unconfigured_scope_blocks_every_write_without_requests(make_service, policy):
@@ -160,6 +160,8 @@ async def test_update_validates_full_proposed_item_and_tests_revision(make_servi
 
     def handler(request):
         calls.append(request)
+        if request.url.path.endswith("/connectionData"):
+            return httpx.Response(200, json=authenticated_user())
         if request.method == "GET":
             return httpx.Response(200, json={**item(kind=kind), "rev": 7})
         assert checked == [True]
@@ -189,7 +191,7 @@ async def test_update_validates_full_proposed_item_and_tests_revision(make_servi
         fields={"Custom.Owner": "Team"},
     )
     assert result.updated and result.item.rev == 8
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 @pytest.mark.parametrize(
@@ -199,6 +201,8 @@ async def test_update_validates_full_proposed_item_and_tests_revision(make_servi
 async def test_update_requires_successful_rules(make_service, policy, rules):
     def handler(request):
         assert request.method == "GET"
+        if request.url.path.endswith("/connectionData"):
+            return httpx.Response(200, json=authenticated_user())
         return httpx.Response(200, json=item())
 
     result = await make_service(handler, replace(policy, rules=rules)).update(1, title="Changed")
@@ -221,6 +225,8 @@ async def test_update_conflict_or_timeout_never_retried(make_service, failure):
 
     def handler(request):
         calls.append(request)
+        if request.url.path.endswith("/connectionData"):
+            return httpx.Response(200, json=authenticated_user())
         if request.method == "GET":
             return httpx.Response(200, json=item())
         assert json.loads(request.content)[0] == {"op": "test", "path": "/rev", "value": 1}
@@ -233,7 +239,7 @@ async def test_update_conflict_or_timeout_never_retried(make_service, failure):
     assert "read" in str(error.value).lower()
     assert "Creation may have succeeded" not in str(error.value)
     assert "private-secret" not in str(error.value)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_scope_configuration_is_exact_and_single(tmp_path):

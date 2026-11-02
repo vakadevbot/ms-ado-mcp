@@ -53,10 +53,9 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             assert set(tools) == {
                 "get_project_rules",
                 "get_current_user",
-                "list_my_work_items",
+                "search_my_work_items",
                 "list_my_active_work_items",
                 "create_my_work_item",
-                "list_active_work_items",
                 "search_work_items",
                 "get_work_item",
                 "get_work_item_hierarchy",
@@ -77,14 +76,15 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 assert "project" not in tools[name].inputSchema["properties"]
                 assert "board" not in tools[name].inputSchema["properties"]
             assert tools["create_my_work_item"].annotations.idempotentHint is False
-            assert tools["list_my_work_items"].annotations.readOnlyHint is True
+            assert tools["search_my_work_items"].annotations.readOnlyHint is True
             assert tools["list_my_active_work_items"].annotations.readOnlyHint is True
             assert tools["get_current_user"].annotations.readOnlyHint is True
             assert tools["validate_work_item"].annotations.readOnlyHint is True
             assert tools["validate_my_active_work_items"].annotations.readOnlyHint is True
             assert tools["validate_my_work_items"].annotations.readOnlyHint is True
             assert (
-                tools["list_active_work_items"].inputSchema["properties"]["limit"]["maximum"] == 200
+                tools["list_my_active_work_items"].inputSchema["properties"]["limit"]["maximum"]
+                == 200
             )
             result = await session.call_tool("get_project_rules", {})
             assert not result.isError
