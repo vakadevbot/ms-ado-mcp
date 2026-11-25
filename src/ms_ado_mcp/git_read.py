@@ -64,11 +64,11 @@ class GitRead:
 
     def check_pr(self, data, project):
         if "repository" in data and not self.allowed(data["repository"], project):
-            raise ValueError("PR repository is outside ADO_ALLOWED_REPOSITORIES.")
+            raise ValueError("PR repository is outside allowed_repositories.")
         if data.get("forkSource"):
             source = data["forkSource"].get("repository") or {}
             if not self.allowed(source, project):
-                raise ValueError("PR source repository is outside ADO_ALLOWED_REPOSITORIES.")
+                raise ValueError("PR source repository is outside allowed_repositories.")
 
     async def list_repositories(
         self, project: str | None = None, limit: int = 100, continuation_token: str | None = None
@@ -89,19 +89,19 @@ class GitRead:
             try:
                 UUID(repository)
             except ValueError:
-                raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.") from None
+                raise ValueError("Repository is not in allowed_repositories.") from None
             matches = [
                 r
                 for r in await self.repositories(project)
                 if str(r.get("id", "")).casefold() == repository.casefold()
             ]
             if not matches:
-                raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.")
+                raise ValueError("Repository is not in allowed_repositories.")
         data, _ = await self.api.get(project, "git", f"repositories/{segment(repository)}")
         if not data.get("project", {}).get("name"):
             raise ValueError("Repository response lacks project ownership; access denied.")
         if not self.allowed(data, project):
-            raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.")
+            raise ValueError("Repository is not in allowed_repositories.")
         return clean(self.repository_view(data, project))
 
     async def repo(self, repository, project):

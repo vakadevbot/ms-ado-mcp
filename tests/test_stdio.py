@@ -29,12 +29,29 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
     )
     dotenv = tmp_path / ".env"
     dotenv.write_text(
-        "AZURE_DEVOPS_URL=https://example.invalid/collection\n"
-        "AZURE_DEVOPS_PAT=stdio-fake-pat\n"
-        "AZURE_DEVOPS_PROJECT=Demo\n"
-        "AZURE_DEVOPS_PROJECTS=Demo,Other\n"
-        "ADO_ALLOWED_REPOSITORIES=Demo/one,Other/two\n"
-        "ADO_RULES_FILE=rules.py\n",
+        "AZURE_DEVOPS_PAT=stdio-fake-pat\n",
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "default_organization": "primary",
+                "organizations": [
+                    {
+                        "name": "primary",
+                        "url": "https://example.invalid/collection",
+                        "projects": ["Demo", "Other"],
+                        "rules_file": "rules.py",
+                    },
+                    {
+                        "name": "secondary",
+                        "url": "https://example.invalid/second",
+                        "projects": ["Demo"],
+                    },
+                ],
+                "allowed_repositories": ["primary/Demo/one", "primary/Other/two"],
+            }
+        )
     )
     # Override any developer's real connection settings in the child.
     env = {**os.environ}
@@ -43,7 +60,7 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             del env[key]
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "ms_ado_mcp", "--env-file", str(dotenv)],
+        args=["-m", "ms_ado_mcp", "--config-file", str(config)],
         cwd=str(tmp_path.parent),
         env=env,
     )
@@ -78,13 +95,23 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 assert tools[name].annotations.destructiveHint is False
                 assert "url" not in tools[name].inputSchema["properties"]
                 assert "output_path" not in tools[name].inputSchema["properties"]
+                assert "organization" in tools[name].inputSchema["properties"]
             assert tools["get_access_scope"].annotations.readOnlyHint is True
             scope = await session.call_tool("get_access_scope", {})
             assert not scope.isError
-            assert json.loads(scope.content[0].text)["projects"] == [
-                {"name": "Demo", "repositories": ["one"]},
-                {"name": "Other", "repositories": ["two"]},
+            assert json.loads(scope.content[0].text)["default_organization"] == "primary"
+            assert json.loads(scope.content[0].text)["organizations"][0]["projects"] == [
+                {"name": "Demo", "repositories": ["one"], "repository_paths": ["primary/Demo/one"]},
+                {
+                    "name": "Other",
+                    "repositories": ["two"],
+                    "repository_paths": ["primary/Other/two"],
+                },
             ]
+            denied = await session.call_tool("list_repositories", {"organization": "unknown"})
+            assert denied.isError
+            empty = await session.call_tool("list_repositories", {"organization": "secondary"})
+            assert not empty.isError and json.loads(empty.content[0].text)["items"] == []
             assert tools["create_task"].annotations.idempotentHint is False
             for name in (
                 "create_task",
@@ -93,6 +120,7 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 "update_work_item",
             ):
                 assert "project" not in tools[name].inputSchema["properties"]
+                assert "organization" not in tools[name].inputSchema["properties"]
                 assert "board" not in tools[name].inputSchema["properties"]
             assert tools["create_my_work_item"].annotations.idempotentHint is False
             assert tools["search_my_work_items"].annotations.readOnlyHint is True

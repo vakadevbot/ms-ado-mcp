@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "OrganizationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Projects",
+          "type": "array"
+        },
+        "default_project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Project"
+        },
+        "rules_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rules File"
+        },
+        "release_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Url"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "projects"
+      ],
+      "title": "OrganizationConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "$Schema"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "default_organization": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default Organization"
+    },
+    "organizations": {
+      "items": {
+        "$ref": "#/$defs/OrganizationConfig"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Organizations",
+      "type": "array"
+    },
+    "allowed_repositories": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2000,
+      "title": "Allowed Repositories",
+      "type": "array"
+    },
+    "api_version": {
+      "default": "6.1-preview",
+      "enum": [
+        "6.1",
+        "6.1-preview"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "http_timeout": {
+      "default": 30,
+      "exclusiveMinimum": 0,
+      "maximum": 300,
+      "title": "Http Timeout",
+      "type": "number"
+    },
+    "ca_bundle": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ca Bundle"
+    },
+    "download_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Download Dir"
+    },
+    "max_download_bytes": {
+      "default": 268435456,
+      "maximum": 1073741824,
+      "minimum": 1,
+      "title": "Max Download Bytes",
+      "type": "integer"
+    },
+    "download_hosts": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Download Hosts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "organizations"
+  ],
+  "title": "Configuration",
+  "type": "object"
+}

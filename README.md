@@ -14,20 +14,21 @@ cd ms-ado-mcp
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e .
 cp .env.example .env
+cp config.example.json config.json
 mkdir -p private
 cp examples/rules.example.py private/rules.py
 ```
 
-В `.env` заполните `AZURE_DEVOPS_URL`, `AZURE_DEVOPS_PAT` и `AZURE_DEVOPS_PROJECT`.
-Для нескольких проектов задайте `AZURE_DEVOPS_PROJECTS` через запятую.
-Для Git/PR обязательно заполните `ADO_ALLOWED_REPOSITORIES` парами `Проект/Репозиторий`:
-пустой список запрещает доступ ко всем репозиториям.
+В `.env` заполните только `AZURE_DEVOPS_PAT`. Организации, проекты, репозитории
+и все остальные параметры задайте в `config.json`. Пример JSON содержит вымышленные
+названия; замените их локально. Пустой `allowed_repositories` запрещает Git/PR.
 PAT: **Work Items → Read & write**; для чтения достаточно Read.
+Для записи work items укажите `rules_file` внутри нужной организации в JSON.
 В `private/rules.py` задайте имя проекта, реальные названия типов и свои правила.
 Пример содержит **вымышленные проверки**, а не ваши корпоративные требования.
 
 ```bash
-.venv/bin/python -m ms_ado_mcp.server --env-file /absolute/path/ms-ado-mcp/.env
+.venv/bin/python -m ms_ado_mcp.server --config-file /absolute/path/ms-ado-mcp/config.json
 ```
 
 Сервер ждёт MCP-сообщения на stdin; отсутствие вывода при запуске нормально.
@@ -45,21 +46,24 @@ cd ms-ado-mcp
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
 Copy-Item .env.example .env
+Copy-Item config.example.json config.json
 New-Item -ItemType Directory -Force private | Out-Null
 Copy-Item examples\rules.example.py private\rules.py
 notepad .env
+notepad config.json
 notepad private\rules.py
 ```
 
-Заполните URL, PAT и проект в `.env`, а в `private\rules.py` настройте проект,
-типы и правила, как описано выше. Для доступа только на чтение без правил
-оставьте `ADO_RULES_FILE=` пустым. При повторной настройке сохраните существующие
-`.env` и `private\rules.py`: команды `Copy-Item` перезаписывают эти файлы.
+Токен заполните в `.env`, остальные настройки — в `config.json`. Для доступа
+только на чтение оставьте `rules_file: null` у каждой организации. Для записи
+настройте приватные правила и укажите путь к ним в JSON. При повторной настройке
+сохраните существующие `.env`, `config.json` и `private/rules.py`: команды копирования
+перезаписывают файлы.
 
 Запустите сервер из каталога проекта:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ms_ado_mcp.server --env-file "$PWD\.env"
+.\.venv\Scripts\python.exe -m ms_ado_mcp.server --config-file "$PWD\config.json"
 ```
 
 Активация виртуального окружения не требуется; менять Execution Policy для
@@ -67,8 +71,8 @@ notepad private\rules.py
 
 В конфигурации OpenCode ниже замените пути на Windows-пути с прямыми слешами,
 например `C:/Users/YourName/ms-ado-mcp/.venv/Scripts/python.exe` и
-`C:/Users/YourName/ms-ado-mcp/.env`. Если в JSON используются обратные слеши,
-их нужно удваивать (`C:\\Users\\YourName\\ms-ado-mcp\\.env`).
+`C:/Users/YourName/ms-ado-mcp/config.json`. Если в JSON используются обратные слеши,
+их нужно удваивать (`C:\\Users\\YourName\\ms-ado-mcp\\config.json`).
 
 Для разработки установите дополнительные зависимости и запустите проверки:
 
@@ -94,8 +98,8 @@ notepad private\rules.py
           "/absolute/path/ms-ado-mcp/.venv/bin/python",
           "-m",
           "ms_ado_mcp.server",
-          "--env-file",
-          "/absolute/path/ms-ado-mcp/.env"
+          "--config-file",
+          "/absolute/path/ms-ado-mcp/config.json"
         ]
       }
     }
@@ -136,8 +140,8 @@ notepad opencode.json
           "C:/Users/YourName/ms-ado-mcp/.venv/Scripts/python.exe",
           "-m",
           "ms_ado_mcp.server",
-          "--env-file",
-          "C:/Users/YourName/ms-ado-mcp/.env"
+          "--config-file",
+          "C:/Users/YourName/ms-ado-mcp/config.json"
         ]
       }
     }
@@ -168,7 +172,7 @@ opencode
 «Покажи активные задачи, назначенные мне, в Azure DevOps».
 После изменения `.env`, правил или конфигурации перезапустите OpenCode.
 Если сервер не подключается, проверьте оба пути и запустите команду
-`.\.venv\Scripts\python.exe -m ms_ado_mcp.server --env-file "$PWD\.env"` из каталога
+`.\.venv\Scripts\python.exe -m ms_ado_mcp.server --config-file "$PWD\config.json"` из каталога
 `ms-ado-mcp`, чтобы увидеть диагностику конфигурации в stderr.
 
 ## Инструменты
@@ -176,7 +180,7 @@ opencode
 | Инструмент | Назначение |
 | --- | --- |
 | `get_project_rules` | Проекты, типы, значения по умолчанию, инструкции и правила |
-| `get_access_scope` | Настроенный список проектов, проект по умолчанию и разрешённые Git-репозитории |
+| `get_access_scope` | Организации, проекты внутри них, разрешённые пути репозиториев и фиксированная область записи |
 | `get_current_user` | Текущая учётная запись Azure DevOps — владелец настроенного PAT |
 | `search_my_work_items` | Поиск моих work items; по умолчанию созданных мной, опционально назначенных на меня |
 | `list_my_active_work_items` | Только мои активные work items: назначение на меня и активные состояния проекта |
@@ -269,7 +273,7 @@ opencode
 `create_my_work_item` — автоматическое назначение на себя. Подмена автора
 и обход правил Azure не используются. Для чтения достаточно PAT с Work Items Read,
 для создания нужны Read & write и права на проект. Без применимых правил
-в `ADO_RULES_FILE` создание остаётся заблокированным.
+в `rules_file` создание остаётся заблокированным.
 
 Примеры запросов в OpenCode:
 
@@ -341,58 +345,90 @@ work item по ID без обязательных временных фильт�
 `project` может обозначать только разрешённый проект. Для Git/PR дополнительно
 проверяется пара проект/имя репозитория; передача ID не обходит эту проверку.
 
-### Доступ к нескольким проектам и отдельным репозиториям
+### Организации, проекты и репозитории
 
-Пример локального `.env` с вымышленными названиями:
+Иерархия Azure DevOps: **организация → проект → репозиторий**.
+В URL `https://dev.azure.com/example-org/Example%20Project/_git/example-repo`
+организация — `example-org`, проект — `Example Project`,
+репозиторий — `example-repo`.
+Ранее URL организации и имя проекта уже были разными настройками, но сервер
+поддерживал только одну организацию. Теперь их может быть несколько.
+Для Azure DevOps Server роль верхнего уровня выполняет коллекция; её локальное
+имя и HTTPS URL указываются явно. [Иерархия Microsoft](https://learn.microsoft.com/en-us/azure/devops/organizations/projects/about-projects?view=azure-devops).
 
-```dotenv
-AZURE_DEVOPS_PROJECTS=Project One,Project Two
-AZURE_DEVOPS_PROJECT=Project One
-ADO_ALLOWED_REPOSITORIES=Project One/backend,Project One/frontend,Project Two/shared
+В `config.json` перечисляются организации с собственными URL и списками проектов,
+а репозитории разрешаются полными путями:
+
+```json
+{
+  "default_organization": "example-org",
+  "organizations": [
+    {
+      "name": "example-org",
+      "url": "https://dev.azure.com/example-org",
+      "projects": ["Example Project", "Another Project"],
+      "default_project": "Example Project",
+      "rules_file": null
+    },
+    {
+      "name": "second-org",
+      "url": "https://dev.azure.com/second-org",
+      "projects": ["Example Project"]
+    }
+  ],
+  "allowed_repositories": [
+    "example-org/Example Project/backend",
+    "example-org/Another Project/frontend",
+    "second-org/Example Project/shared"
+  ]
+}
 ```
 
-`AZURE_DEVOPS_PROJECTS` — полный список доступных проектов через запятую.
-Пробелы вокруг записей удаляются, пробелы внутри названий сохраняются.
-`AZURE_DEVOPS_PROJECT` выбирает проект по умолчанию и должен входить в список;
-если он пуст, используется первый проект. Можно также записать список прямо
-в `AZURE_DEVOPS_PROJECT=Project One,Project Two`, оставив `AZURE_DEVOPS_PROJECTS`
-пустым. Одновременно задавать два списка нельзя.
+В `.env` хранится **только токен**:
 
-При явном списке проектов приватный `PROJECTS` не расширяет доступ за его пределы.
-Для включённых проектов существующие правила и `BoardScope` сохраняются; проект
-без приватной политики получает только чтение, без возможности записи work items.
-Если список не задан и старый `AZURE_DEVOPS_PROJECT` содержит одно имя, сохраняется
-прежний выбор проектов из приватных правил (или одного проекта без правил).
+```dotenv
+AZURE_DEVOPS_PAT=
+```
 
-`ADO_ALLOWED_REPOSITORIES` — отдельный закрытый список точных пар
-`проект/имя репозитория`, также через запятую. Укажите **имя**, а не UUID; wildcard,
-пустые записи и повторения не принимаются. Проект пары должен быть разрешён.
-Имена репозиториев и проект в паре сравниваются без учёта регистра.
-Список не выдаёт права Azure: PAT всё равно должен иметь доступ.
+Полный пример: [config.example.json](config.example.json), схема для редактора:
+[config.schema.json](config.schema.json). Все несекретные настройки, включая TLS,
+скачивание, API-версию и пути к правилам, находятся в JSON.
+[Подробная настройка и перенос со старой версии](docs/configuration.md).
 
-**После обновления заполните этот параметр:** пустое или отсутствующее значение
-запрещает все Git/PR-операции. Проект без перечисленных репозиториев остаётся
-доступен для work items, Builds и classic Releases; их проектные права не меняются.
-Этот список ограничивает Git/PR API, а не содержимое логов и артефактов pipelines.
-
-`list_repositories` показывает только разрешённые репозитории. Все операции Git,
-PR, чтение файлов, коммитов и скачивание проверяют список. Для UUID сервер сначала
-сопоставляет его с разрешённым именем; переименование репозитория не сохраняет
-доступ автоматически. PR из запрещённого fork-источника также недоступны.
-Поиск PR без `repository` последовательно читает только разрешённые репозитории
-выбранного проекта; курсор хранит репозиторий и позицию. Следуйте продолжению,
-включая пустые страницы.
+Одинаковые имена проектов в разных организациях разрешаются независимо.
+`default_organization` выбирает организацию по умолчанию, а
+`default_project` — проект внутри конкретной организации; при отсутствии
+используются первые записи соответствующих списков.
+При чтении укажите `organization` и при необходимости `project`:
 
 ```text
 get_access_scope()
-list_repositories(project="Project Two")
-get_repository(project="Project One", repository="backend")
-search_pull_requests(project="Project One", personal="review")
+list_repositories(organization="second-org", project="Example Project")
+get_repository(organization="example-org", project="Example Project", repository="backend")
+search_pull_requests(organization="example-org", project="Example Project", personal="review")
 ```
 
-`get_access_scope` показывает локально настроенный доступ, без проверки реальных
-прав PAT в Azure. Каждый запрос работает в одном выбранном проекте; для другого
-передайте `project`. После изменения `.env` перезапустите сервер.
+`get_access_scope` показывает настроенные организации, проекты и полные пути
+репозиториев. Это локальный список разрешений, а не проверка реальных прав PAT.
+Один PAT должен иметь необходимые права во всех перечисленных организациях.
+
+Любой неуказанный уровень доступа запрещён. Список репозиториев содержит точные
+имена, без wildcard; пустой список запрещает все Git/PR-операции. Обращение по
+UUID сначала сопоставляется с разрешённым именем в выбранной организации/проекте.
+PR из запрещённого fork-источника недоступны. Поиск PR без репозитория обходит
+только разрешённые репозитории выбранного проекта с продолжением по курсору.
+Этот список ограничивает Git/PR API; work items, Builds и Releases используют
+список проектов и организаций.
+
+Для каждой организации создаётся отдельный HTTP-клиент и отдельное состояние
+пагинации/скачиваний. Курсор или download ID из другой организации не переносится.
+Внешние URL, организации или проекты нельзя передать для обхода настроенного списка.
+
+Приватные политики не расширяют список проектов из JSON. Без политики проект
+доступен только для чтения. **Во всех организациях вместе разрешён только один
+`BoardScope` для записи.** Инструменты записи не принимают ни организацию,
+ни проект: сервер фиксирует их по приватной политике, независимо от организации
+по умолчанию для чтения. После изменения JSON или PAT перезапустите сервер.
 
 | Область | Инструменты |
 | --- | --- |
@@ -429,7 +465,8 @@ search_pull_requests(project="Project One", personal="review")
 `continuation_token`, `has_more`, `incomplete` и параметры/версию выборки.
 Передавайте токен в следующий вызов с теми же фильтрами. Build definitions/runs,
 Release definitions/releases и Git refs используют настоящий Azure continuation
-token. PR, policies и commits используют документированные offset-параметры.
+token, обёрнутый сервером для привязки к организации и параметрам запроса.
+PR, policies и commits используют документированные offset-параметры.
 PR и policies — живая выборка: изменения состава во время обхода могут сдвинуть
 страницы; это не снимок базы. Для аудита меняющейся выборки повторите обход.
 
@@ -476,7 +513,7 @@ Classic Releases — самостоятельная сущность; YAML stage
 
 Для Services автоматически выбирается `https://vsrm.dev.azure.com/<organization>`
 (включая исходный URL `<organization>.visualstudio.com`). Для Server используется
-URL коллекции. `ADO_RELEASE_URL` позволяет переопределить его локально; облачный
+URL коллекции. `release_url` организации в JSON позволяет переопределить его локально; облачный
 адрес для on-premises не требуется.
 
 ### PR и проверки
@@ -536,7 +573,7 @@ Git LFS pointer отмечается `lfs_pointer=true`; настоящие LFS-
 
 ### Локальные скачивания и архивы
 
-Задайте `ADO_DOWNLOAD_DIR` локально (относительно `.env` или абсолютный путь).
+Задайте `download_dir` в JSON (относительно JSON-файла или абсолютный путь).
 Пустое значение отключает скачивание. MCP-клиент не задаёт имя или путь назначения:
 файл получает случайное имя. Ответ содержит `download_id`, `local_path`, `size`,
 `sha256`. Скачанные данные не удаляются после завершения; удаляйте их локально.
@@ -554,11 +591,11 @@ Build-артефакты типа **Container** скачиваются как ZI
 endpoint. PipelineArtifact, FilePath и прочие типы пока дают явную ошибку —
 произвольный `resource.downloadUrl` не используется. Release logs и Git archives
 также получаются через фиксированные маршруты. Скачивание потоковое; по умолчанию
-до 256 МиБ, `ADO_MAX_DOWNLOAD_BYTES` допускает 1 байт – 1 ГиБ. Ошибка, обрыв,
+до 256 МиБ, `max_download_bytes` допускает 1 байт – 1 ГиБ. Ошибка, обрыв,
 превышение лимита или опасный ZIP удаляют временный `.part`.
 
 Редиректы по умолчанию запрещены. Разрешить внешнее хранилище можно только локально
-через `ADO_DOWNLOAD_HOSTS`: точные HTTPS-hostnames, без wildcard, порт 443, максимум
+через `download_hosts` в JSON: точные HTTPS-hostnames, без wildcard, порт 443, максимум
 четыре перехода. При любом переходе Authorization/PAT и cookies не передаются,
 даже обратно на исходный host. URL с credentials блокируются; TLS всегда проверяется.
 Не добавляйте недоверенные хосты в локальный список.
@@ -683,10 +720,10 @@ update_work_item(item_id=123, use_configured_iteration=true)
 ограничение записи не зависит от того, какие элементы ИИ прочитал.
 
 Удобнее хранить `rules.py` **вне публичного checkout** или в отдельном приватном
-репозитории, а в `.env` указать `ADO_RULES_FILE=/absolute/path/company/rules.py`.
-`private/`, `.env*` и `*.local.py` исключены из Git; файл примера публичный.
-Относительные пути правил и CA разрешаются относительно `.env`, не рабочего каталога OpenCode.
-Переменные окружения имеют приоритет над `.env`.
+репозитории, а в JSON нужной организации указать `"rules_file": "/absolute/path/company/rules.py"`.
+`private/`, `.env*`, `config.json`, `config.local.json` и `*.local.py` исключены из Git; примеры публичные.
+Относительные пути правил, CA и скачиваний разрешаются относительно JSON-конфига.
+Только `AZURE_DEVOPS_PAT` из окружения имеет приоритет над `.env`; настройки берутся исключительно из JSON.
 
 Модуль экспортирует `PROJECTS = [ProjectPolicy(...), ...]`.
 Каждый `Rule` содержит **инструкцию и исполняемую проверку рядом**.
@@ -694,8 +731,8 @@ update_work_item(item_id=123, use_configured_iteration=true)
 ресурс `ado://rules` и результаты `get_project_rules`.
 ИИ видит правила заранее, а создание независимо повторяет проверки.
 Нет применимых правил, проверка упала или вернула ошибку — запись не выполняется.
-Чтобы работать только на чтение без модуля, оставьте `ADO_RULES_FILE` пустым
-и задайте `AZURE_DEVOPS_PROJECT`.
+Чтобы работать только на чтение без модуля, оставьте `rules_file: null`
+и перечислите разрешённые проекты организации в JSON.
 
 YAML/JSON подходят для обязательных полей и перечислений, но зависимости между
 полями, родительские связи и условия удобнее выразить Python-функциями.
@@ -715,9 +752,9 @@ YAML/JSON подходят для обязательных полей и пер�
 ### Логи ошибок
 
 Ошибки конфигурации и запросов к Azure DevOps записываются в
-`logs/ms-ado-mcp.log` **рядом с выбранным `.env`**, независимо от рабочего
+`logs/ms-ado-mcp.log` **рядом с выбранным JSON-конфигом**, независимо от рабочего
 каталога OpenCode. Папка создаётся автоматически при запуске сервера.
-Например, для `--env-file C:/Users/YourName/ms-ado-mcp/.env` лог находится в
+Например, для `--config-file C:/Users/YourName/ms-ado-mcp/config.json` лог находится в
 `C:/Users/YourName/ms-ado-mcp/logs/ms-ado-mcp.log`.
 
 Лог содержит время ошибки, HTTP-статус, имя сервера, тип операции и подсказки
@@ -742,15 +779,17 @@ Get-Content U:\Users\YourName\projects\ms-ado-mcp\logs\ms-ado-mcp.log -Tail 50
 .venv/bin/ruff format --check .
 ```
 
-Слои: `client.py` — REST, `service.py` — операции, `policy.py` — контракт правил,
-`server.py` — MCP tools/prompts/resources. Новую операцию добавляйте в сервис и
+Слои: `app_config.py` — JSON и секрет, `organization_server.py` — маршрутизация
+между организациями, `client.py` — REST, `service.py` — операции,
+`policy.py` — контракт правил, `server.py` — MCP tools/prompts/resources.
+Новую операцию добавляйте в сервис и
 регистрируйте инструмент в сервере; корпоративный модуль менять не требуется.
 Тесты используют подставной HTTP transport и реальное stdio-подключение MCP,
 не создают work items в Azure.
 
-`AZURE_DEVOPS_API_VERSION=6.1-preview` выбирает ревизии отдельно для WIQL (`.2`),
+`"api_version": "6.1-preview"` в JSON выбирает ревизии отдельно для WIQL (`.2`),
 work items (`.3`), batch и states (`.1`). Значение `6.1` передаётся без preview
 для WIT. `connectionData` всегда использует `6.1-preview.1`: этот endpoint preview-only.
 Для запросов WIQL включён `timePrecision=true`; фильтры дат передаются в UTC с `Z`.
 Совместимость конкретной установки Azure Server нужно проверить с её URL/PAT.
-Для корпоративного CA используйте `ADO_CA_BUNDLE=/path/ca.pem`; TLS-проверка включена.
+Для корпоративного CA используйте `"ca_bundle": "/path/ca.pem"` в JSON; TLS-проверка включена.

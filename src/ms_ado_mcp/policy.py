@@ -213,7 +213,7 @@ def load_policies(
         if allowed_projects:
             return scope_policies({}, allowed_projects)
         if not default_project:
-            raise ValueError("Set ADO_RULES_FILE or AZURE_DEVOPS_PROJECT.")
+            raise ValueError("Configure rules_file or projects in JSON.")
         return {default_project: ProjectPolicy(name=default_project)}
     try:
         spec = importlib.util.spec_from_file_location("_ado_private_policy", path)
@@ -239,8 +239,8 @@ def load_policies(
         return scope_policies(result, allowed_projects)
     except Exception:
         raise ValueError(
-            "Cannot load ADO_RULES_FILE: check trusted Python code, PROJECTS, "
-            "unique project names, and AZURE_DEVOPS_PROJECT. No fallback is allowed."
+            "Cannot load rules_file: check trusted Python code, PROJECTS, "
+            "unique project names, and default_project. No fallback is allowed."
         ) from None
 
 

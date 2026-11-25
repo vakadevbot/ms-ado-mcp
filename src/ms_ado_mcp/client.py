@@ -80,7 +80,7 @@ class AzureDevOpsClient:
         except httpx.RequestError as exc:
             hint = "Check server availability, network, VPN and proxy settings."
             if isinstance(exc, httpx.TimeoutException):
-                hint = "Request timed out; check connectivity and ADO_HTTP_TIMEOUT."
+                hint = "Request timed out; check connectivity and http_timeout."
             elif isinstance(exc, httpx.ProxyError):
                 hint = "Proxy connection failed; check HTTPS_PROXY and proxy authentication."
             cause: BaseException | None = exc
@@ -88,7 +88,7 @@ class AzureDevOpsClient:
             while cause is not None and id(cause) not in seen:
                 seen.add(id(cause))
                 if isinstance(cause, ssl.SSLError):
-                    hint = "TLS failed; check the certificate chain and ADO_CA_BUNDLE."
+                    hint = "TLS failed; check the certificate chain and ca_bundle."
                     break
                 if isinstance(cause, socket.gaierror):
                     hint = "DNS lookup failed; check the server hostname, network and VPN."

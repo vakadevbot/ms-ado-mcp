@@ -192,6 +192,12 @@ class ReadAPI:
 
     async def native_page(self, project, area, path, params, limit, continuation_token):
         number(limit, 200)
+        binding = self.binding(
+            self.settings.organization, self.project(project), area, path, params
+        )
+        azure_token = continuation_token
+        if self.settings.organization is not None and continuation_token:
+            azure_token = self.decode(continuation_token, binding)
         data, headers = await self.get(
             project,
             area,
@@ -199,12 +205,14 @@ class ReadAPI:
             {
                 **{k: v for k, v in params.items() if v is not None},
                 "$top": limit,
-                **({"continuationToken": continuation_token} if continuation_token else {}),
+                **({"continuationToken": azure_token} if azure_token else {}),
             },
         )
         cursor = headers.get("x-ms-continuationtoken") or None
-        if cursor is not None and cursor == continuation_token:
+        if cursor is not None and cursor == azure_token:
             raise self.fail(area, "list", reason="Non-advancing continuation token")
+        if cursor is not None and self.settings.organization is not None:
+            cursor = self.encode(binding, cursor)
         return page(
             clean(data.get("value", [])),
             cursor,

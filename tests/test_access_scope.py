@@ -1,11 +1,10 @@
-import os
 from dataclasses import replace
 
 import httpx
 import pytest
 
 from ms_ado_mcp.client import AzureDevOpsClient
-from ms_ado_mcp.config import ConfigurationError, load_settings
+from ms_ado_mcp.config import ConfigurationError
 from ms_ado_mcp.downloads import Downloads
 from ms_ado_mcp.git_read import GitRead
 from ms_ado_mcp.policy import BoardScope, ProjectPolicy, load_policies
@@ -21,67 +20,6 @@ SHA = "a" * 40
 
 def repository(name="allowed", repo_id=ALLOWED_ID, project="Demo Project"):
     return {"id": repo_id, "name": name, "project": {"id": "project-id", "name": project}}
-
-
-@pytest.fixture
-def env_file(tmp_path, monkeypatch):
-    for key in os.environ:
-        if key.startswith(("ADO_", "AZURE_DEVOPS_")):
-            monkeypatch.delenv(key)
-    path = tmp_path / ".env"
-    path.write_text("AZURE_DEVOPS_URL=https://ado.example/c\nAZURE_DEVOPS_PAT=fake\n")
-    return path
-
-
-def test_multiple_projects_and_default(env_file, monkeypatch):
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECTS", " First Project, Second Project ")
-    monkeypatch.setenv("ADO_ALLOWED_REPOSITORIES", "First Project/api, Second Project/web")
-    settings = load_settings(env_file)
-    assert settings.projects == ("First Project", "Second Project")
-    assert settings.project == "First Project"
-    assert settings.repositories_for("second project") == ("web",)
-    policies = load_policies(None, settings.project, settings.projects)
-    assert list(policies) == ["First Project", "Second Project"]
-    assert all(p.write_scope is None for p in policies.values())
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "Second Project")
-    assert load_settings(env_file).project == "Second Project"
-
-
-def test_csv_legacy_project_variable(env_file, monkeypatch):
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "One, Two")
-    settings = load_settings(env_file)
-    assert settings.project == "One" and settings.projects == ("One", "Two")
-
-
-@pytest.mark.parametrize(
-    "key,value",
-    [
-        ("AZURE_DEVOPS_PROJECTS", "A,,B"),
-        ("AZURE_DEVOPS_PROJECTS", "A,a"),
-        ("AZURE_DEVOPS_PROJECTS", "A/Repo"),
-        ("AZURE_DEVOPS_PROJECTS", "*"),
-        ("ADO_ALLOWED_REPOSITORIES", "Repo"),
-        ("ADO_ALLOWED_REPOSITORIES", "A/R/extra"),
-        ("ADO_ALLOWED_REPOSITORIES", "A/*"),
-        ("ADO_ALLOWED_REPOSITORIES", "A/.."),
-        ("ADO_ALLOWED_REPOSITORIES", "A/R,"),
-        ("ADO_ALLOWED_REPOSITORIES", "A/R,a/r"),
-    ],
-)
-def test_malformed_allowlists_fail_closed(env_file, monkeypatch, key, value):
-    monkeypatch.setenv(key, value)
-    with pytest.raises(ConfigurationError):
-        load_settings(env_file)
-
-
-def test_conflicting_project_settings_fail(env_file, monkeypatch):
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECTS", "A,B")
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "C")
-    with pytest.raises(ConfigurationError):
-        load_settings(env_file)
-    monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "A,B")
-    with pytest.raises(ConfigurationError):
-        load_settings(env_file)
 
 
 def test_private_policies_preserved_and_scope_filtered(tmp_path):
@@ -149,7 +87,7 @@ async def test_every_repository_tool_denies_unlisted_names_without_network(acces
 
     _, git, prs = access(handler)
     for operation in operations(git, prs, "denied"):
-        with pytest.raises(ValueError, match="ADO_ALLOWED_REPOSITORIES"):
+        with pytest.raises(ValueError, match="allowed_repositories"):
             await operation
 
 
@@ -161,7 +99,7 @@ async def test_empty_allowlist_denies_everything(access):
     assert (await git.list_repositories())["items"] == []
     assert (await prs.search_pull_requests())["items"] == []
     for operation in operations(git, prs, ALLOWED_ID):
-        with pytest.raises(ValueError, match="ADO_ALLOWED_REPOSITORIES"):
+        with pytest.raises(ValueError, match="allowed_repositories"):
             await operation
 
 
@@ -175,7 +113,7 @@ async def test_id_cannot_bypass_name_allowlist(access):
 
     _, git, prs = access(handler)
     for operation in operations(git, prs, DENIED_ID):
-        with pytest.raises(ValueError, match="ADO_ALLOWED_REPOSITORIES"):
+        with pytest.raises(ValueError, match="allowed_repositories"):
             await operation
     assert len(calls) == 14
 
@@ -206,14 +144,14 @@ async def test_allowed_id_and_filtered_repository_pages(access):
 
 async def test_metadata_rename_and_same_name_other_project_denied(access):
     _, git, _ = access(lambda request: httpx.Response(200, json=repository("renamed")))
-    with pytest.raises(ValueError, match="ADO_ALLOWED_REPOSITORIES"):
+    with pytest.raises(ValueError, match="allowed_repositories"):
         await git.get_repository("allowed")
 
     def handler(request):
         pytest.fail("Project/name pair must be checked before networking")
 
     _, git, _ = access(handler, allowed=("Other/allowed",), projects=("Demo Project", "Other"))
-    with pytest.raises(ValueError, match="ADO_ALLOWED_REPOSITORIES"):
+    with pytest.raises(ValueError, match="allowed_repositories"):
         await git.get_repository("allowed", project="Demo Project")
 
 

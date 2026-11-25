@@ -7,7 +7,7 @@ import pytest
 
 from ms_ado_mcp.builds import Builds
 from ms_ado_mcp.client import AzureDevOpsClient, AzureDevOpsError
-from ms_ado_mcp.config import ConfigurationError, Settings, load_settings
+from ms_ado_mcp.config import ConfigurationError, Settings
 from ms_ado_mcp.downloads import Downloads
 from ms_ado_mcp.git_read import GitRead
 from ms_ado_mcp.pull_requests import PullRequests
@@ -701,24 +701,3 @@ async def test_json_limit_redirects_and_invalid_json(domains):
         api, builds, *_ = domains(lambda request, response=response: response)
         with pytest.raises(AzureDevOpsError, match=match):
             await builds.get_pipeline_run(1)
-
-
-def test_download_configuration_is_local_and_validated(tmp_path, monkeypatch):
-    import os
-
-    for key in os.environ:
-        if key.startswith(("ADO_", "AZURE_DEVOPS_")):
-            monkeypatch.delenv(key)
-    dotenv = tmp_path / ".env"
-    dotenv.write_text(
-        "AZURE_DEVOPS_URL=https://ado.example/c\nAZURE_DEVOPS_PAT=fake\n"
-        "ADO_DOWNLOAD_DIR=files\nADO_MAX_DOWNLOAD_BYTES=123\n"
-        "ADO_DOWNLOAD_HOSTS=one.example,two.example\nADO_RELEASE_URL=https://release.example/c\n"
-    )
-    settings = load_settings(dotenv)
-    assert settings.download_dir == tmp_path / "files" and settings.max_download_bytes == 123
-    assert settings.download_hosts == ("one.example", "two.example")
-    assert settings.release_base_url == "https://release.example/c"
-    monkeypatch.setenv("ADO_MAX_DOWNLOAD_BYTES", "secret")
-    with pytest.raises(ConfigurationError, match="ADO_MAX_DOWNLOAD_BYTES"):
-        load_settings(dotenv)

@@ -25,7 +25,7 @@ class Downloads:
         project = self.api.project(project)
         settings = self.api.settings
         if settings.download_dir is None:
-            raise ValueError("Downloads disabled; configure ADO_DOWNLOAD_DIR locally.")
+            raise ValueError("Downloads disabled; configure download_dir locally.")
         root = settings.download_dir.resolve()
         root.mkdir(parents=True, exist_ok=True)
         handle = uuid.uuid4().hex

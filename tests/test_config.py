@@ -2,38 +2,6 @@ from dataclasses import replace
 
 import pytest
 
-from ms_ado_mcp.config import load_settings
-
-
-def test_env_paths_overrides_and_literal_pat(tmp_path, monkeypatch):
-    for key in (
-        "AZURE_DEVOPS_URL",
-        "AZURE_DEVOPS_PAT",
-        "AZURE_DEVOPS_PROJECT",
-        "ADO_RULES_FILE",
-        "AZURE_DEVOPS_API_VERSION",
-        "ADO_CA_BUNDLE",
-        "ADO_HTTP_TIMEOUT",
-    ):
-        monkeypatch.delenv(key, raising=False)
-    env = tmp_path / ".env"
-    env.write_text(
-        "AZURE_DEVOPS_URL=https://example.org/collection/\n"
-        "AZURE_DEVOPS_PAT=literal-${NO_INTERPOLATION}\n"
-        "AZURE_DEVOPS_PROJECT=Demo\n"
-        "ADO_RULES_FILE=private/rules.py\n"
-        "ADO_CA_BUNDLE=certs/root.pem\n",
-    )
-    monkeypatch.chdir(tmp_path.parent)
-    settings = load_settings(env)
-    assert settings.pat == "literal-${NO_INTERPOLATION}"
-    assert settings.rules_file == tmp_path / "private" / "rules.py"
-    assert settings.ca_bundle == tmp_path / "certs" / "root.pem"
-    assert settings.url == "https://example.org/collection"
-    assert "literal-" not in repr(settings)
-    monkeypatch.setenv("AZURE_DEVOPS_PAT", "process-secret")
-    assert load_settings(env).pat == "process-secret"
-
 
 @pytest.mark.parametrize(
     "url",
