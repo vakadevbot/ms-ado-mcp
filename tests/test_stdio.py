@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sys
 from datetime import timedelta
@@ -31,6 +32,8 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
         "AZURE_DEVOPS_URL=https://example.invalid/collection\n"
         "AZURE_DEVOPS_PAT=stdio-fake-pat\n"
         "AZURE_DEVOPS_PROJECT=Demo\n"
+        "AZURE_DEVOPS_PROJECTS=Demo,Other\n"
+        "ADO_ALLOWED_REPOSITORIES=Demo/one,Other/two\n"
         "ADO_RULES_FILE=rules.py\n",
     )
     # Override any developer's real connection settings in the child.
@@ -55,6 +58,7 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             tools = {t.name: t for t in catalog.tools}
             assert set(tools) == set(READ_TOOL_NAMES) | {
                 "get_project_rules",
+                "get_access_scope",
                 "get_current_user",
                 "search_my_work_items",
                 "list_my_active_work_items",
@@ -74,6 +78,13 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 assert tools[name].annotations.destructiveHint is False
                 assert "url" not in tools[name].inputSchema["properties"]
                 assert "output_path" not in tools[name].inputSchema["properties"]
+            assert tools["get_access_scope"].annotations.readOnlyHint is True
+            scope = await session.call_tool("get_access_scope", {})
+            assert not scope.isError
+            assert json.loads(scope.content[0].text)["projects"] == [
+                {"name": "Demo", "repositories": ["one"]},
+                {"name": "Other", "repositories": ["two"]},
+            ]
             assert tools["create_task"].annotations.idempotentHint is False
             for name in (
                 "create_task",

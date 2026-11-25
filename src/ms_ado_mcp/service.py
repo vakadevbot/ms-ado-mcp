@@ -21,7 +21,14 @@ from .models import (
     WorkItem,
     WorkItemPage,
 )
-from .policy import SCOPE_FIELDS, ProjectPolicy, ValidationContext, check_field_names, validate
+from .policy import (
+    SCOPE_FIELDS,
+    ProjectPolicy,
+    ValidationContext,
+    check_field_names,
+    scope_policies,
+    validate,
+)
 
 
 def literal(value: str) -> str:
@@ -91,11 +98,11 @@ class WorkItemService:
         default_project: str | None,
     ) -> None:
         self.client = client
-        self.policies = policies
+        self.policies = scope_policies(policies, client.settings.projects)
         self.default_project = default_project
-        writable = [p for p in policies.values() if p.write_scope is not None]
-        if len(writable) > 1:
+        if sum(p.write_scope is not None for p in policies.values()) > 1:
             raise ValueError("Only one project may have a BoardScope for writes.")
+        writable = [p for p in self.policies.values() if p.write_scope is not None]
         self.writable_policy = writable[0] if writable else None
 
     def write_policy(self, project: str | None = None) -> ProjectPolicy:

@@ -47,11 +47,7 @@ class PullRequests:
                 if status != "active" or (reviewer_id and reviewer_id != identity.id):
                     raise ValueError("Review mode requires active status and the PAT owner.")
                 reviewer_id = identity.id
-        path = (
-            (await self.git.repo(repository, project)) + "/pullrequests"
-            if repository
-            else "pullrequests"
-        )
+        repositories = (repository,) if repository else self.api.settings.repositories_for(project)
         filters = {
             "searchCriteria.status": status,
             "searchCriteria.creatorId": creator_id,
@@ -59,8 +55,17 @@ class PullRequests:
             "searchCriteria.sourceRefName": source_branch,
             "searchCriteria.targetRefName": target_branch,
         }
-        binding = self.api.binding(project, path, filters, since, before, personal)
-        skip = self.api.decode(continuation_token, binding) if continuation_token else 0
+        binding = self.api.binding(project, repositories, filters, since, before, personal)
+        state = (
+            self.api.decode(continuation_token, binding)
+            if continuation_token
+            else {"repository_index": 0, "skip": 0}
+        )
+        if not repositories:
+            return page([], query={**filters, "since": since, "before": before})
+        selected = repositories[state["repository_index"]]
+        path = (await self.git.repo(selected, project)) + "/pullrequests"
+        skip = state["skip"]
         data, _ = await self.api.get(
             project,
             "git",
@@ -70,6 +75,10 @@ class PullRequests:
         raw = data.get("value", [])
         items = []
         for pr in raw:
+            try:
+                self.git.check_pr(pr, project)
+            except ValueError:
+                continue
             if since or before:
                 created = creation_timestamp(pr["creationDate"])
                 if since and created < creation_timestamp(since):
@@ -82,13 +91,19 @@ class PullRequests:
             ):
                 continue
             items.append(pr)
+        if len(raw) == limit:
+            state["skip"] += len(raw)
+        else:
+            state = {"repository_index": state["repository_index"] + 1, "skip": 0}
         return page(
             clean(items),
-            self.api.encode(binding, skip + len(raw)) if len(raw) == limit else None,
+            self.api.encode(binding, state)
+            if state["repository_index"] < len(repositories)
+            else None,
             scanned_count=len(raw),
             date_filter="creationDate (local)",
             consistency="live offset pagination; membership changes can shift pages",
-            query={**filters, "since": since, "before": before},
+            query={**filters, "since": since, "before": before, "repository": selected},
         )
 
     async def get_pull_request(
@@ -99,6 +114,7 @@ class PullRequests:
         data, _ = await self.api.get(
             project, "git", repo + f"/pullrequests/{number(pull_request_id)}"
         )
+        self.git.check_pr(data, self.api.project(project))
         return clean(data)
 
     async def get_pull_request_changes(
@@ -116,6 +132,7 @@ class PullRequests:
         """
         number(limit, 200)
         number(compare_to, minimum=0)
+        await self.get_pull_request(repository, pull_request_id, project)
         repo = await self.git.repo(repository, project)
         path = repo + f"/pullrequests/{number(pull_request_id)}/iterations"
         iterations, _ = await self.api.get(project, "git", path)
@@ -155,6 +172,7 @@ class PullRequests:
         continuation_token: str | None = None,
     ) -> dict:
         """Read discussions, comments and thread statuses. Bounded local pages; no writes."""
+        await self.get_pull_request(repository, pull_request_id, project)
         repo = await self.git.repo(repository, project)
         path = repo + f"/pullrequests/{number(pull_request_id)}/threads"
         data, _ = await self.api.get(project, "git", path)
@@ -179,6 +197,7 @@ class PullRequests:
         """
         number(limit, 200)
         metadata = await self.git.get_repository(repository, project)
+        await self.get_pull_request(repository, pull_request_id, project)
         repo = await self.git.repo(repository, project)
         number(pull_request_id)
         binding = self.api.binding(self.api.project(project), repo, pull_request_id)

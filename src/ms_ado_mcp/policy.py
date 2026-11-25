@@ -198,8 +198,20 @@ class ProjectPolicy:
         return "\n".join(line for line in lines if line)
 
 
-def load_policies(path: Path | None, default_project: str | None) -> dict[str, ProjectPolicy]:
+def scope_policies(
+    policies: dict[str, ProjectPolicy], projects: tuple[str, ...]
+) -> dict[str, ProjectPolicy]:
+    if not projects:
+        return policies
+    return {name: policies.get(name, ProjectPolicy(name=name)) for name in projects}
+
+
+def load_policies(
+    path: Path | None, default_project: str | None, allowed_projects: tuple[str, ...] = ()
+) -> dict[str, ProjectPolicy]:
     if path is None:
+        if allowed_projects:
+            return scope_policies({}, allowed_projects)
         if not default_project:
             raise ValueError("Set ADO_RULES_FILE or AZURE_DEVOPS_PROJECT.")
         return {default_project: ProjectPolicy(name=default_project)}
@@ -222,9 +234,9 @@ def load_policies(path: Path | None, default_project: str | None) -> dict[str, P
             raise ValueError("Only one project may have a write scope.")
         if len(result) != len(projects):
             raise ValueError
-        if default_project and default_project not in result:
+        if default_project and default_project not in result and not allowed_projects:
             raise ValueError
-        return result
+        return scope_policies(result, allowed_projects)
     except Exception:
         raise ValueError(
             "Cannot load ADO_RULES_FILE: check trusted Python code, PROJECTS, "

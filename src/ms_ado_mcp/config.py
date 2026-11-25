@@ -11,6 +11,27 @@ class ConfigurationError(ValueError):
     """Configuration diagnostic containing no supplied values or private source."""
 
 
+def csv_setting(value: str, name: str) -> tuple[str, ...]:
+    if not value.strip():
+        return ()
+    result = tuple(part.strip() for part in value.split(","))
+    if any(not part for part in result) or len(result) > 200:
+        raise ConfigurationError(f"{name} must contain 1–200 nonempty comma-separated entries.")
+    if len({part.casefold() for part in result}) != len(result):
+        raise ConfigurationError(f"{name} contains duplicate entries.")
+    return result
+
+
+def valid_scope_name(value: str) -> bool:
+    return bool(
+        value
+        and value == value.strip()
+        and value not in {".", ".."}
+        and not any(c in value for c in "/\\,*?%")
+        and not any(ord(c) < 32 for c in value)
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     url: str
@@ -24,8 +45,31 @@ class Settings:
     download_dir: Path | None = None
     max_download_bytes: int = 268435456
     download_hosts: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
+    allowed_repositories: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if any(not valid_scope_name(p) for p in self.projects):
+            raise ConfigurationError("AZURE_DEVOPS_PROJECTS must contain exact project names.")
+        if len({p.casefold() for p in self.projects}) != len(self.projects):
+            raise ConfigurationError("AZURE_DEVOPS_PROJECTS contains duplicate projects.")
+        if self.projects:
+            if self.project is None:
+                object.__setattr__(self, "project", self.projects[0])
+            elif self.project not in self.projects:
+                raise ConfigurationError(
+                    "AZURE_DEVOPS_PROJECT must belong to AZURE_DEVOPS_PROJECTS."
+                )
+        if any(
+            len(entry.split("/")) != 2
+            or not all(valid_scope_name(part) for part in entry.split("/"))
+            for entry in self.allowed_repositories
+        ):
+            raise ConfigurationError(
+                "ADO_ALLOWED_REPOSITORIES requires exact Project/Repository pairs."
+            )
+        if len({r.casefold() for r in self.allowed_repositories}) != len(self.allowed_repositories):
+            raise ConfigurationError("ADO_ALLOWED_REPOSITORIES contains duplicate entries.")
         try:
             parsed = urlsplit(self.url)
         except ValueError:
@@ -82,6 +126,13 @@ class Settings:
             return f"https://vsrm.dev.azure.com/{org}"
         return self.url.rstrip("/")
 
+    def repositories_for(self, project: str) -> tuple[str, ...]:
+        return tuple(
+            entry.split("/", 1)[1]
+            for entry in self.allowed_repositories
+            if entry.split("/", 1)[0].casefold() == project.casefold()
+        )
+
     def version(self, endpoint: str) -> str:
         if endpoint == "connectiondata":
             # Location/connectionData is preview-only, even when WIT uses stable 6.1.
@@ -129,10 +180,23 @@ def load_settings(env_file: Path) -> Settings:
         result = Path(value).expanduser()
         return (env_file.parent / result).resolve()
 
+    legacy_projects = csv_setting(values.get("AZURE_DEVOPS_PROJECT") or "", "AZURE_DEVOPS_PROJECT")
+    projects = csv_setting(values.get("AZURE_DEVOPS_PROJECTS") or "", "AZURE_DEVOPS_PROJECTS")
+    if projects and len(legacy_projects) > 1:
+        raise ConfigurationError(
+            "Use only AZURE_DEVOPS_PROJECTS for the project list; "
+            "AZURE_DEVOPS_PROJECT selects one default."
+        )
+    if not projects and len(legacy_projects) > 1:
+        projects = legacy_projects
     return Settings(
         url=(values.get("AZURE_DEVOPS_URL") or "").rstrip("/"),
         pat=values.get("AZURE_DEVOPS_PAT") or "",
-        project=values.get("AZURE_DEVOPS_PROJECT") or None,
+        project=legacy_projects[0] if legacy_projects else None,
+        projects=projects,
+        allowed_repositories=csv_setting(
+            values.get("ADO_ALLOWED_REPOSITORIES") or "", "ADO_ALLOWED_REPOSITORIES"
+        ),
         rules_file=path("ADO_RULES_FILE"),
         api_version=values.get("AZURE_DEVOPS_API_VERSION") or "6.1-preview",
         timeout=timeout,

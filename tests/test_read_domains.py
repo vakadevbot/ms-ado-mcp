@@ -16,7 +16,7 @@ from ms_ado_mcp.releases import Releases
 from ms_ado_mcp.service import WorkItemService
 
 SHA = "a" * 40
-REPO = {"id": "repo", "project": {"id": "project-id", "name": "Demo Project"}}
+REPO = {"id": "repo", "name": "repo", "project": {"id": "project-id", "name": "Demo Project"}}
 
 
 @pytest.fixture
@@ -24,6 +24,7 @@ async def domains(settings, policy, tmp_path):
     clients = []
 
     def factory(handler, **options):
+        options.setdefault("allowed_repositories", ("Demo Project/repo",))
         config = replace(settings, download_dir=tmp_path / "downloads", **options)
 
         def guarded(request):
@@ -211,6 +212,8 @@ async def test_logs_are_bounded(domains):
 
 async def test_pr_local_date_filter_and_empty_page(domains):
     def handler(request):
+        if request.url.path.endswith("/repositories/repo"):
+            return httpx.Response(200, json=REPO)
         q = request.url.params
         assert "searchCriteria.minTime" not in q
         assert q["searchCriteria.status"] == "completed"
@@ -243,6 +246,8 @@ async def test_pr_local_date_filter_and_empty_page(domains):
 
 async def test_my_prs(domains):
     def handler(request):
+        if request.url.path.endswith("/repositories/repo"):
+            return httpx.Response(200, json=REPO)
         if request.url.path.endswith("connectionData"):
             return httpx.Response(200, json={"authenticatedUser": {"id": "me"}})
         assert request.url.params["searchCriteria.reviewerId"] == "me"
@@ -266,6 +271,8 @@ async def test_pr_iteration_pagination(domains):
     calls = []
 
     def handler(request):
+        if request.url.path.endswith("/pullrequests/1"):
+            return httpx.Response(200, json={"pullRequestId": 1, "repository": REPO})
         calls.append(request)
         path = request.url.path
         if path.endswith("/repositories/repo"):
@@ -468,6 +475,8 @@ async def test_stream_limit_and_unsupported_artifact(domains, tmp_path):
 
 async def test_status_and_policy_pages_use_supported_parameters(domains):
     def handler(request):
+        if request.url.path.endswith("/pullrequests/12"):
+            return httpx.Response(200, json={"pullRequestId": 12, "repository": REPO})
         path, q = request.url.path, request.url.params
         if path.endswith("/repositories/repo"):
             return httpx.Response(200, json=REPO)

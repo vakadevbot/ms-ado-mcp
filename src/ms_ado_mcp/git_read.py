@@ -3,6 +3,7 @@
 import fnmatch
 import re
 from typing import Literal
+from uuid import UUID
 
 from .downloads import text_content
 from .read_api import clean, dates, number, page, segment
@@ -33,22 +34,75 @@ class GitRead:
     def __init__(self, api, downloads):
         self.api, self.downloads = api, downloads
 
+    def allowed(self, metadata, project):
+        owner = metadata.get("project", {}).get("name")
+        name = metadata.get("name")
+        return (
+            isinstance(owner, str)
+            and owner.casefold() == project.casefold()
+            and isinstance(name, str)
+            and name.casefold()
+            in {r.casefold() for r in self.api.settings.repositories_for(project)}
+        )
+
+    async def repositories(self, project):
+        if not self.api.settings.repositories_for(project):
+            return []
+        data, _ = await self.api.get(project, "git", "repositories")
+        return [
+            self.repository_view(r, project)
+            for r in data.get("value", [])
+            if self.allowed(r, project)
+        ]
+
+    def repository_view(self, data, project):
+        data = dict(data)
+        parent = data.pop("parentRepository", None)
+        if parent and self.allowed(parent, project):
+            data["parentRepository"] = self.repository_view(parent, project)
+        return data
+
+    def check_pr(self, data, project):
+        if "repository" in data and not self.allowed(data["repository"], project):
+            raise ValueError("PR repository is outside ADO_ALLOWED_REPOSITORIES.")
+        if data.get("forkSource"):
+            source = data["forkSource"].get("repository") or {}
+            if not self.allowed(source, project):
+                raise ValueError("PR source repository is outside ADO_ALLOWED_REPOSITORIES.")
+
     async def list_repositories(
         self, project: str | None = None, limit: int = 100, continuation_token: str | None = None
     ) -> dict:
-        """Repositories of the allowed project. Bounded local pages (API has no cursor)."""
-        data, _ = await self.api.get(project, "git", "repositories")
-        items = data.get("value", [])
+        """Only allowlisted repositories of this project. An empty allowlist returns no results."""
+        number(limit, 200)
+        project = self.api.project(project)
+        items = await self.repositories(project)
         return self.api.slice(
             items, self.api.binding(self.api.project(project), items), limit, continuation_token
         )
 
     async def get_repository(self, repository: str, project: str | None = None) -> dict:
-        """Read repository metadata and verify its owning project."""
+        """Read an allowlisted repository by name or ID; IDs never bypass the name allowlist."""
+        project = self.api.project(project)
+        names = self.api.settings.repositories_for(project)
+        if repository.casefold() not in {name.casefold() for name in names}:
+            try:
+                UUID(repository)
+            except ValueError:
+                raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.") from None
+            matches = [
+                r
+                for r in await self.repositories(project)
+                if str(r.get("id", "")).casefold() == repository.casefold()
+            ]
+            if not matches:
+                raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.")
         data, _ = await self.api.get(project, "git", f"repositories/{segment(repository)}")
         if not data.get("project", {}).get("name"):
             raise ValueError("Repository response lacks project ownership; access denied.")
-        return clean(data)
+        if not self.allowed(data, project):
+            raise ValueError("Repository is not in ADO_ALLOWED_REPOSITORIES.")
+        return clean(self.repository_view(data, project))
 
     async def repo(self, repository, project):
         data = await self.get_repository(repository, project)
