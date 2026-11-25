@@ -6,6 +6,8 @@ from datetime import timedelta
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from ms_ado_mcp.read_tools import READ_TOOL_NAMES
+
 
 async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_path):
     # Private fixture is created in a temporary directory; no live Azure access is needed.
@@ -51,7 +53,7 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
             assert "stdio-fake-pat" not in init.model_dump_json()
             catalog = await session.list_tools()
             tools = {t.name: t for t in catalog.tools}
-            assert set(tools) == {
+            assert set(tools) == set(READ_TOOL_NAMES) | {
                 "get_project_rules",
                 "get_current_user",
                 "search_my_work_items",
@@ -67,6 +69,11 @@ async def test_real_stdio_handshake_tools_prompt_resource_and_validation(tmp_pat
                 "validate_my_active_work_items",
                 "validate_my_work_items",
             }
+            for name in READ_TOOL_NAMES:
+                assert tools[name].annotations.readOnlyHint is True
+                assert tools[name].annotations.destructiveHint is False
+                assert "url" not in tools[name].inputSchema["properties"]
+                assert "output_path" not in tools[name].inputSchema["properties"]
             assert tools["create_task"].annotations.idempotentHint is False
             for name in (
                 "create_task",

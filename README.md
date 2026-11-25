@@ -1,7 +1,9 @@
 # ms-ado-mcp
 
 Локальный MCP-сервер для Azure DevOps: Python 3.12, stdio, PAT из `.env`,
-REST API **6.1-preview** (по умолчанию) или **6.1**.
+WIT REST API **6.1-preview** (по умолчанию) или **6.1**.
+Builds, classic Releases, Git и Pull Requests доступны только для чтения,
+с отдельными версиями REST API (см. ниже).
 Поддерживает Azure DevOps Services и Server с HTTPS URL коллекции.
 
 ## Быстрый запуск
@@ -321,6 +323,219 @@ work item по ID без обязательных временных фильт�
 Примеры запросов в OpenCode: «Проверь все мои активные work items»,
 «Проверь мои work items, созданные с 1 августа 2026»,
 «Проверь мои элементы только во втором спринте пятого PI».
+
+## Builds, classic Releases, Git и PR: только чтение
+
+Все следующие инструменты имеют `readOnlyHint=true`, `destructiveHint=false`.
+Они отправляют только GET, не запускают и не отменяют pipelines/releases,
+не создают PR/комментарии, не голосуют, не меняют политики, файлы, ветки или теги.
+Скачивание пишет только на локальный диск. Ограничения записи work items,
+включая `BoardScope`, владельца PAT и `test /rev`, сохраняются.
+
+Нужны PAT **Build → Read**, **Release → Read**, **Code → Read** и доступ
+к выбранному проекту. Секреты и корпоративные адреса заполняйте локально.
+`project` может обозначать только проект из существующих правил; без правил —
+`AZURE_DEVOPS_PROJECT`. ID репозитория не обходит проверку его проекта.
+
+| Область | Инструменты |
+| --- | --- |
+| Build pipelines (YAML и classic) | `list_pipeline_definitions`, `list_pipeline_runs`, `get_pipeline_run` |
+| Шаги и артефакты Build | `get_pipeline_run_steps`, `get_pipeline_step_log`, `list_pipeline_artifacts`, `download_pipeline_artifact` |
+| Classic Releases («Выпуски») | `list_release_definitions`, `list_releases`, `get_release`, `get_release_steps`, `get_release_task_log`, `download_release_logs`, `list_release_artifacts` |
+| Pull Requests | `search_pull_requests`, `get_pull_request`, `get_pull_request_changes`, `get_pull_request_threads`, `get_pull_request_statuses` |
+| Репозитории | `list_repositories`, `get_repository`, `list_repository_refs` |
+| Файлы | `list_repository_files`, `search_repository_files`, `get_repository_file`, `download_repository_file`, `download_repository_archive` |
+| Коммиты | `list_repository_commits`, `get_repository_commit` |
+| Локальные ZIP | `list_download_archive`, `get_download_archive_file` |
+
+### Время и страницы
+
+`since` — обязательная нижняя граница исторических списков запусков, releases,
+коммитов и PR со статусами completed/abandoned/all. `before` задаёт верхнюю
+границу. Даты: `YYYY-MM-DD` (полночь UTC) или ISO с часовым поясом; начало
+должно предшествовать концу. Получение объекта по ID даты не требует.
+
+- Builds: **время постановки в очередь**, `queryOrder=queueTimeDescending`.
+  `minTime`/`maxTime` передаются Azure как границы этого времени, согласно его API;
+  они не относятся ко времени начала или окончания. Текущие `inProgress`,
+  `notStarted`, `postponed`, `cancelling` не требуют даты.
+- Releases: **дата создания** (`minCreatedTime`/`maxCreatedTime`), нижняя граница
+  обязательна даже для `active`: активный release может быть историческим.
+- PR: **creationDate**, `since` включается, `before` исключается. Для текущих
+  `active` дата необязательна. В API 6.0 нет серверных фильтров дат PR:
+  за вызов читается одна ограниченная страница и фильтруется локально.
+  Пустая страница с продолжением не означает конец. История может потребовать
+  много вызовов; скрытой автоматической выгрузки всех PR нет.
+- Коммиты: серверные `searchCriteria.fromDate/toDate` по дате коммита.
+
+`limit` — 1–200, по умолчанию 100. Ответы списков содержат `items`,
+`continuation_token`, `has_more`, `incomplete` и параметры/версию выборки.
+Передавайте токен в следующий вызов с теми же фильтрами. Build definitions/runs,
+Release definitions/releases и Git refs используют настоящий Azure continuation
+token. PR, policies и commits используют документированные offset-параметры.
+PR и policies — живая выборка: изменения состава во время обхода могут сдвинуть
+страницы; это не снимок базы. Для аудита меняющейся выборки повторите обход.
+
+Для API без пагинации (например, repositories, threads, statuses, timeline)
+реализованы локальные страницы с проверкой отпечатка ответа. Если источник
+изменился, продолжение отклоняется: начните заново. JSON-ответ ограничен 8 МиБ;
+при превышении выдаётся ошибка, а не ложный полный результат. Локальные курсоры
+подписаны, привязаны к запросу и действуют только до перезапуска сервера.
+
+### Pipelines и classic Releases
+
+```text
+list_pipeline_definitions(name="Example CI", folder="\\Examples")
+list_pipeline_runs(definition_id=12, since="2026-11-01", status="completed", result="failed", branch="refs/heads/main")
+get_pipeline_run(build_id=123)
+get_pipeline_run_steps(build_id=123)
+get_pipeline_step_log(build_id=123, log_id=7, start_line=0, line_count=200)
+list_releases(since="2026-11-01", definition_id=8, status="active", environment_status=8, definition_environment_id=3)
+get_release_steps(release_id=42)
+```
+
+Имена определений проверяются на точное совпадение; неоднозначность или ещё
+непрочитанные страницы требуют использовать ID. Для Builds доступны `build_number`
+(допускает `*` в конце), статус, результат, ветка, определение и диапазон времени.
+Timeline сохраняет `parentId`, `attempt`, `previousAttempts`, `log.id`.
+Если есть `details.id`, его можно передать как `timeline_id` для вложенного timeline.
+
+Classic Releases — самостоятельная сущность; YAML stages остаются в Build timeline.
+`status` release: `active`, `draft`, `abandoned`. `environment_status` — отдельная
+битовая маска Azure: 1 notStarted, 2 inProgress, 4 succeeded, 8 canceled,
+16 rejected, 32 queued, 64 scheduled, 128 partiallySucceeded; значения можно объединять.
+Этот фильтр требует `definition_environment_id` выбранного окружения определения.
+Шаги возвращаются отдельными записями environment/deployment/phase/job/task со
+связями, номером попытки и `release_deploy_phase_id`. Этот ID вместе с
+`release_id`, `environment_id`, `task_id` выбирает конкретный лог попытки.
+Источники release-артефактов сохраняют `definitionReference`, включая build ID
+в `version.id` для типа Build. Ссылки на источники других проектов не обходятся.
+
+Логи читаются окнами `start_line` (с нуля), `line_count` (до 1000),
+`max_bytes` (до 256 КиБ). `truncated` и `byte_limit_reached` показывают ограничения.
+При наличии `next_start_line` продолжайте с него. Если одна строка превысила
+байтовый лимит, точного продолжения нет: увеличьте лимит либо скачайте логи release.
+Логи работающего процесса могут дополняться; ответ отражает момент чтения.
+
+Для Services автоматически выбирается `https://vsrm.dev.azure.com/<organization>`
+(включая исходный URL `<organization>.visualstudio.com`). Для Server используется
+URL коллекции. `ADO_RELEASE_URL` позволяет переопределить его локально; облачный
+адрес для on-premises не требуется.
+
+### PR и проверки
+
+```text
+search_pull_requests(personal="created", status="active")
+search_pull_requests(repository="example-repo", personal="review")
+search_pull_requests(status="completed", since="2026-11-01", target_branch="refs/heads/main")
+get_pull_request_changes(repository="example-repo", pull_request_id=24)
+get_pull_request_statuses(repository="example-repo", pull_request_id=24)
+```
+
+Дополнительные фильтры: `creator_id`, `reviewer_id`, `source_branch`, `target_branch`.
+Личные режимы определяют ID владельца PAT через connectionData. `personal="review"`
+выбирает активные PR, где он reviewer с голосом 0; групповые назначения без
+индивидуальной записи reviewer не разворачиваются. Изменения PR фиксируют выбранную
+итерацию в курсоре; `compare_to=0` сравнивает с общим предком, другой ID — с итерацией.
+Обсуждения содержат комментарии и статусы тредов.
+
+Проверки выдаются двумя последовательными источниками `source=statuses/policies`:
+следуйте курсору, чтобы получить оба. При недоступности одного API (403/404)
+возвращаются `unavailable` и `incomplete=true`, доступный источник остаётся доступен.
+Никаких изменений checks/policies/reviewers инструмент не выполняет.
+
+### Git: версии, поиск файлов и ограничения
+
+```text
+list_repository_refs(repository="example-repo", prefix="heads/feature/")
+search_repository_files(repository="example-repo", version="main", version_type="branch", directory="/src", extensions=[".py"], exclude=["*/generated/*"])
+get_repository_file(repository="example-repo", path="/README.md", version="v1.0", version_type="tag")
+list_repository_commits(repository="example-repo", version="main", since="2026-11-01", path="/src")
+```
+
+Версия обязательна: `version_type=branch/tag/commit`; commit — полный SHA из
+40 hex-символов. Имена веток передаются как ветки через `versionDescriptor`,
+без неявного выбора default branch. Первый вызов разрешает выбранную версию;
+обход файлов и список коммитов фиксируют SHA. Смена ветки между страницами
+не меняет дерево. Чтение и скачивание файла также фиксируют найденный commit.
+
+Файлы обходятся через нерекурсивные Git Trees: до 20 деревьев и 2000 просмотренных
+записей за вызов. Остаток обхода хранится в подписанном курсоре. Ограничение очереди —
+1000 каталогов; при превышении нужно сузить `directory`. При `truncated` от Azure
+результат помечается `incomplete=true`, включая последние страницы.
+Несуществующие `$top`/continuationToken в Git Items/Trees не отправляются.
+
+Фильтры регистрозависимы: `name` (подстрока имени), `path_contains`, `prefix`,
+`suffix`, `extensions` (суффиксы, например `.yaml`), `glob`, `exclude` (список масок).
+Маски используют Python fnmatch по абсолютному POSIX-пути; `*` совпадает также с `/`.
+Подкаталоги обходятся независимо от фильтров результатов. Полнотекстовый Code Search
+не реализован; поиск имён/путей не зависит от расширения Azure Search.
+
+Текст читается как UTF-8 с ограничением `max_bytes` и диапазоном строк. Байтовый
+лимит относится к префиксу файла: строки за его пределами требуют скачивания.
+Для бинарных/non-UTF-8 файлов возвращаются метаданные и предложение скачать.
+Git LFS pointer отмечается `lfs_pointer=true`; настоящие LFS-объекты не разрешаются.
+Скачивание сохраняет pointer как есть (`lfs_resolved=false`).
+
+### Локальные скачивания и архивы
+
+Задайте `ADO_DOWNLOAD_DIR` локально (относительно `.env` или абсолютный путь).
+Пустое значение отключает скачивание. MCP-клиент не задаёт имя или путь назначения:
+файл получает случайное имя. Ответ содержит `download_id`, `local_path`, `size`,
+`sha256`. Скачанные данные не удаляются после завершения; удаляйте их локально.
+Идентификатор для просмотра ZIP действует только в текущем сеансе сервера.
+
+```text
+download_pipeline_artifact(build_id=123, artifact_name="drop")
+download_release_logs(release_id=42)
+download_repository_archive(repository="example-repo", version="main", directory="/src")
+list_download_archive(download_id="<ID из результата>")
+get_download_archive_file(download_id="<ID из результата>", member="README.md", line_count=100)
+```
+
+Build-артефакты типа **Container** скачиваются как ZIP через сконструированный Build
+endpoint. PipelineArtifact, FilePath и прочие типы пока дают явную ошибку —
+произвольный `resource.downloadUrl` не используется. Release logs и Git archives
+также получаются через фиксированные маршруты. Скачивание потоковое; по умолчанию
+до 256 МиБ, `ADO_MAX_DOWNLOAD_BYTES` допускает 1 байт – 1 ГиБ. Ошибка, обрыв,
+превышение лимита или опасный ZIP удаляют временный `.part`.
+
+Редиректы по умолчанию запрещены. Разрешить внешнее хранилище можно только локально
+через `ADO_DOWNLOAD_HOSTS`: точные HTTPS-hostnames, без wildcard, порт 443, максимум
+четыре перехода. При любом переходе Authorization/PAT и cookies не передаются,
+даже обратно на исходный host. URL с credentials блокируются; TLS всегда проверяется.
+Не добавляйте недоверенные хосты в локальный список.
+
+ZIP не распаковываются и файлы не выполняются. Проверяются traversal, абсолютные
+пути, symlinks, дубликаты, encryption, ZIP bombs и размер central directory.
+Лимиты: 10 000 записей, каталог 4 МиБ, 1 ГиБ суммарно распакованных данных,
+256 МиБ на запись, коэффициент сжатия до 200. ZIP64/multidisk не поддерживаются.
+Просмотр члена архива читает только небольшой UTF-8 файл (до `max_bytes`, максимум
+256 КиБ); для большего возвращает метаданные и `truncated=true`.
+
+Диагностика идёт в существующий `logs/ms-ado-mcp.log`. Не логируются тела HTTP,
+PAT, signed URL, cookies и Authorization. Структурированные download URL удаляются,
+секретные переменные Release скрываются. Содержимое файлов, логов и комментариев
+может само содержать чувствительные данные: оно передаётся MCP-клиенту как
+**недоверенные данные**, а не инструкции для агента.
+
+### Версии API и проверка
+
+Build, обычные Release и Git операции используют документированные стабильные
+маршруты 6.0, независимо от настройки WIT. Исключения: Release logs/task logs —
+`6.0-preview.2`, Git Trees/PR statuses и Policy evaluations — `6.0-preview.1`.
+Параметры сверены с [Build REST](https://learn.microsoft.com/en-us/rest/api/azure/devops/build/builds/list?view=azure-devops-rest-6.0),
+[Release REST](https://learn.microsoft.com/en-us/rest/api/azure/devops/release/releases/list?view=azure-devops-rest-6.0),
+[Git Items](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/items/list?view=azure-devops-rest-6.0),
+[PR REST](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-requests?view=azure-devops-rest-6.0)
+и официальным [SDK Microsoft](https://github.com/microsoft/azure-devops-python-api)
+(`azure-devops==6.0.0b4`, только справочник, не зависимость проекта).
+
+Тесты используют `httpx.MockTransport` и реальный локальный MCP stdio; корпоративные
+данные не нужны. Проверяются GET-only, границы проекта, фильтры и версии, курсоры,
+SHA, ограничения текста/архивов, удаление недокачанных файлов, отсутствие PAT на
+download-host и прежние ограничения записи work items. Живая проверка на конкретном
+Azure DevOps Services/Server требует локального URL/PAT и здесь не заявляется.
 
 ## Приватные правила и проекты
 
